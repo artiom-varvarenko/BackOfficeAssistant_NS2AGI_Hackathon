@@ -1,0 +1,5 @@
+# Normalise line endings so two machines never produce CRLF/LF diffs.
+* text=auto eol=lf
+*.pdf binary
+*.ico binary
+*.png binary

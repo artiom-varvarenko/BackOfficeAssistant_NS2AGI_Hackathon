@@ -1,6 +1,8 @@
 'use client';
 
-import { Fragment, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useLocale } from './LanguageProvider';
+
+import { Fragment, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { safeSourceUrl, searchSources } from '@/lib/api-client';
 import type { SearchHit } from '@/lib/types';
@@ -27,16 +29,19 @@ function decodeSnippetText(text: string): string {
 function SearchSnippet({ text }: { text: string }) {
   // Split trusted delimiters before decoding; decoded source markup is React text only.
   let highlighted = false;
-  return <>{text.split(/(<mark>|<\/mark>)/).map((part, index) => {
-    if (part === '<mark>') { highlighted = true; return null; }
-    if (part === '</mark>') { highlighted = false; return null; }
-    if (!part) return null;
+  const nodes: ReactNode[] = [];
+  for (const [index, part] of text.split(/(<mark>|<\/mark>)/).entries()) {
+    if (part === '<mark>') { highlighted = true; continue; }
+    if (part === '</mark>') { highlighted = false; continue; }
+    if (!part) continue;
     const decoded = decodeSnippetText(part);
-    return highlighted ? <mark key={index}>{decoded}</mark> : <Fragment key={index}>{decoded}</Fragment>;
-  })}</>;
+    nodes.push(highlighted ? <mark key={index}>{decoded}</mark> : <Fragment key={index}>{decoded}</Fragment>);
+  }
+  return <>{nodes}</>;
 }
 
 export function SearchPanel() {
+  const { t } = useLocale();
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState('');
   const [hits, setHits] = useState<SearchHit[] | null>(null);
@@ -56,24 +61,24 @@ export function SearchPanel() {
   }
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void search(query); }
   return <section className="card" aria-labelledby={`${id}-heading`}>
-    <h2 id={`${id}-heading`}>Zoek in bronnen</h2>
-    <p className="muted">Rechtstreekse zoekopdracht in de ingeschakelde bronnen — zonder AI.</p>
+    <h2 id={`${id}-heading`}>{t("Zoek in bronnen")}</h2>
+    <p className="muted">{t("Rechtstreekse zoekopdracht in de ingeschakelde bronnen — zonder AI.")}</p>
     <form onSubmit={submit} role="search" aria-labelledby={`${id}-heading`} aria-busy={busy}>
-      <label className="field" htmlFor={`${id}-query`}>Zoekterm(en)<input id={`${id}-query`} type="search" value={query} onChange={(event) => setQuery(event.target.value)} required maxLength={500} placeholder="Bijvoorbeeld: loting" /></label>
-      <button type="submit" disabled={busy || !query.trim()}>{busy ? 'Zoeken…' : 'Zoeken'}</button>
+      <label className="field" htmlFor={`${id}-query`}>{t("Zoekterm(en)")}<input id={`${id}-query`} type="search" value={query} onChange={(event) => setQuery(event.target.value)} required maxLength={500} placeholder={t("Bijvoorbeeld: loting")} /></label>
+      <button type="submit" disabled={busy || !query.trim()}>{busy ? t("Zoeken…") : t("Zoeken")}</button>
     </form>
     <div role="status" aria-live="polite" aria-atomic="true">
-      {busy && <p>Bronnen doorzoeken…</p>}
-      {hits !== null && <p className="muted">{hits.length ? `${hits.length} passages gevonden voor “${submitted}”.` : `Geen passages gevonden voor “${submitted}”. Probeer andere zoekwoorden.`}</p>}
+      {busy && <p>{t("Bronnen doorzoeken…")}</p>}
+      {hits !== null && <p className="muted">{hits.length ? t('{n} passages gevonden voor “{query}”.', { n: hits.length, query: submitted }) : t('Geen passages gevonden voor “{query}”. Probeer andere zoekwoorden.', { query: submitted })}</p>}
     </div>
-    {error && <div className="notice notice-red" role="alert"><p>Zoeken is mislukt. {error}</p><button type="button" onClick={() => { void search(submitted); }}>Opnieuw proberen</button></div>}
+    {error && <div className="notice notice-red" role="alert"><p>{t("Zoeken is mislukt.")}{' '}{t(error)}</p><button type="button" onClick={() => { void search(submitted); }}>{t("Opnieuw proberen")}</button></div>}
     {hits !== null && hits.map(({ passage, snippet }) => {
       const pdfUrl = safeSourceUrl(passage.pdfUrl, true);
       return <article className="citation-card" key={passage.id}>
         <h3><Link href={`/bronnen/${encodeURIComponent(passage.sourceId)}`}>{passage.sourceTitle}</Link></h3>
         <p className="muted">{[passage.article, passage.section].filter(Boolean).join(' · ')}{passage.article || passage.section ? ' · ' : ''}p. {passage.pageStart}{passage.pageEnd !== passage.pageStart ? `–${passage.pageEnd}` : ''}</p>
         <p className="quote">{snippet ? <SearchSnippet text={snippet} /> : passage.text.slice(0, 300)}</p>
-        {pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open PDF op p. ${passage.pageStart} van ${passage.sourceTitle} (nieuw tabblad)`}>Open PDF op p. {passage.pageStart} ↗</a> : <span className="muted">PDF niet beschikbaar.</span>}
+        {pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer" aria-label={t('Open PDF op p. {page} van {title} (nieuw tabblad)', { page: passage.pageStart, title: passage.sourceTitle })}>{t("Open PDF op p.")}{' '}{passage.pageStart} ↗</a> : <span className="muted">{t("PDF niet beschikbaar.")}</span>}
       </article>;
     })}
   </section>;

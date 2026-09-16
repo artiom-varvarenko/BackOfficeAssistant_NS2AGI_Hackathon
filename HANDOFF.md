@@ -1,5 +1,10 @@
 # Economie-assistent — laptop / agent handoff
 
+> Historical checkpoint: the receiving integrator has now reconciled both
+> laptop branches. Current implementation and acceptance evidence are in
+> [docs/final-integration.md](docs/final-integration.md). The stop/ownership and
+> unmerged-branch instructions below describe the earlier handoff only.
+
 ## 1. Read this first
 
 The user requested a stop and a portable handoff to another agent/laptop. The originating agent is **not continuing implementation** after this checkpoint. This is **not a declaration that PLAN.md is finished**.

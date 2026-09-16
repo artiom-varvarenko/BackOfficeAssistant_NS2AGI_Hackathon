@@ -1,8 +1,10 @@
 'use client';
 
+import { useLocale } from './LanguageProvider';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 export function EmailDraftModal({ draft, onClose }: { draft: string; onClose: () => void }) {
+  const { t } = useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(false);
@@ -42,12 +44,12 @@ export function EmailDraftModal({ draft, onClose }: { draft: string; onClose: ()
   }
 
   return <dialog ref={dialog} className="email-dialog" aria-labelledby="email-title" aria-describedby="email-description" onCancel={(event) => { event.preventDefault(); onClose(); }}>
-    <div className="section-heading"><h2 id="email-title">E-mailconcept</h2><button type="button" onClick={onClose} aria-label="E-mailconcept sluiten">Sluiten</button></div>
-    <p id="email-description" className="notice notice-amber">Concept — wordt niet verzonden</p>
-    <p className="muted">Controleer de tekst voor gebruik. Aanpassingen in dit venster worden alleen meegenomen bij het kopiëren.</p>
-    <label className="field">Tekst van het e-mailconcept<textarea ref={textarea} rows={16} value={text} onChange={(event) => changeText(event.target.value)} /></label>
-    <div className="actions"><button type="button" className="primary" disabled={copyState === 'copying'} onClick={() => void copy()}>{copyState === 'copying' ? 'Kopiëren…' : 'Kopieer e-mailconcept'}</button><button type="button" onClick={onClose}>Sluiten</button></div>
-    <p role="status" aria-live="polite">{copyState === 'copied' ? 'E-mailconcept gekopieerd.' : ''}</p>
-    {copyState === 'error' && <p className="notice notice-red" role="alert">Kopiëren is niet gelukt. Selecteer en kopieer de tekst handmatig.</p>}
+    <div className="section-heading"><h2 id="email-title">{t("E-mailconcept")}</h2><button type="button" onClick={onClose} aria-label={t("E-mailconcept sluiten")}>{t("Sluiten")}</button></div>
+    <p id="email-description" className="notice notice-amber">{t("Concept — wordt niet verzonden")}</p>
+    <p className="muted">{t("Controleer de tekst voor gebruik. Aanpassingen in dit venster worden alleen meegenomen bij het kopiëren.")}</p>
+    <label className="field">{t("Tekst van het e-mailconcept")}<textarea ref={textarea} rows={16} value={text} onChange={(event) => changeText(event.target.value)} /></label>
+    <div className="actions"><button type="button" className="primary" disabled={copyState === 'copying'} onClick={() => void copy()}>{copyState === 'copying' ? t("Kopiëren…") : t("Kopieer e-mailconcept")}</button><button type="button" onClick={onClose}>{t("Sluiten")}</button></div>
+    <p role="status" aria-live="polite">{copyState === 'copied' ? t("E-mailconcept gekopieerd.") : ''}</p>
+    {copyState === 'error' && <p className="notice notice-red" role="alert">{t("Kopiëren is niet gelukt. Selecteer en kopieer de tekst handmatig.")}</p>}
   </dialog>;
 }

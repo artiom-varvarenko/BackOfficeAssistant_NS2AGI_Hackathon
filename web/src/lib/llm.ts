@@ -26,6 +26,7 @@ import {
 } from 'ai';
 import type { z } from 'zod';
 import { ApiError } from './api';
+import { getDb } from './db';
 import { redactSecrets, safeModelErrorMessage } from './model-errors';
 import { getAzureResourceName, getCustomBaseUrl, getTaskModel, resolveKey } from './settings';
 import type { Effort, LlmTask, ProviderId, TaskModel } from './types';
@@ -165,22 +166,29 @@ export interface ResolvedTaskModel {
 const resolvedSecrets = new WeakMap<ResolvedTaskModel, readonly string[]>();
 
 export function resolveTaskModel(task: LlmTask): ResolvedTaskModel {
-  const taskModel = getTaskModel(task);
-  const def = PROVIDERS.find((p) => p.id === taskModel.provider);
-  if (def === undefined) throw new Error(`Unknown provider '${taskModel.provider}' for task '${task}'`);
-  const resolved = resolveKey(def.id);
-  if (resolved === null && !def.keyOptional) {
-    throw new NoModelConfiguredError(
-      `Geen API-sleutel ingesteld voor ${def.label}. Voeg een sleutel toe onder Instellingen.`,
-    );
-  }
-  const secrets = resolved === null ? [] : [resolved.key];
-  try {
-    const model = def.make(resolved?.key ?? null, {
+  // An atomic settings update in another worker can switch a custom endpoint
+  // and its key together. Read one snapshot so the old key is never sent to
+  // the new endpoint (and the task/model describe that same configuration).
+  const { taskModel, def, resolved, baseUrl, resourceName } = getDb().transaction(() => {
+    const taskModel = getTaskModel(task);
+    const def = PROVIDERS.find((p) => p.id === taskModel.provider);
+    if (def === undefined) throw new Error(`Unknown provider '${taskModel.provider}' for task '${task}'`);
+    const resolved = resolveKey(def.id);
+    if (resolved === null && !def.keyOptional) {
+      throw new NoModelConfiguredError(
+        `Geen API-sleutel ingesteld voor ${def.label}. Voeg een sleutel toe onder Instellingen.`,
+      );
+    }
+    return {
+      taskModel, def, resolved,
       // Invalid configuration for an unrelated provider must not block a call.
       baseUrl: def.id === 'custom' ? getCustomBaseUrl() : null,
       resourceName: def.id === 'azure' ? getAzureResourceName() : null,
-    })(taskModel.model);
+    };
+  })();
+  const secrets = resolved === null ? [] : [resolved.key];
+  try {
+    const model = def.make(resolved?.key ?? null, { baseUrl, resourceName })(taskModel.model);
     const result = { def, taskModel, model };
     resolvedSecrets.set(result, secrets);
     return result;

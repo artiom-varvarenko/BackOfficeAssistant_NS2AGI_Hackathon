@@ -3,6 +3,7 @@
 import type { NextRequest } from 'next/server';
 import { handle } from '@/lib/api';
 import { draftEmail } from '@/lib/email-draft';
+import { requestLocale } from '@/lib/request-locale';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,6 @@ export const dynamic = 'force-dynamic';
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
     const { id } = await params;
-    return Response.json(await draftEmail(id));
+    return Response.json(await draftEmail(id, requestLocale(_req)));
   });
 }

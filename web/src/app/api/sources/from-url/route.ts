@@ -3,6 +3,7 @@ import { handle, readJson } from '@/lib/api';
 import { getSource } from '@/lib/dto';
 import { createSource, type SourceMeta } from '@/lib/ingest';
 import { downloadSourcePdf } from '@/lib/source-download';
+import { requestLocale } from '@/lib/request-locale';
 import {
   FIELD_LABELS,
   jsonObject,
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     const { buffer, fileName } = await downloadSourcePdf(url);
     // Same ready/failed states, immutable version storage and source events as
     // uploads. originalUrl is the requested URL, not a transient redirect URL.
-    const { sourceId } = await createSource(buffer, source, { ...version, fileName });
+    const { sourceId } = await createSource(buffer, source, { ...version, fileName }, requestLocale(req));
     return Response.json(getSource(sourceId), { status: 201 });
   });
 }

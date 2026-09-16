@@ -25,7 +25,6 @@ const SWEEP_INTERVAL_MS = 30_000;
 // Same global singleton convention as db.ts. State survives Next dev HMR; it is
 // intentionally process-local, not a distributed rate limiter or durable quota.
 declare global {
-  // eslint-disable-next-line no-var
   var __economieAssistentRateLimits: Partial<Record<BucketKind, BucketStore>> | undefined;
 }
 

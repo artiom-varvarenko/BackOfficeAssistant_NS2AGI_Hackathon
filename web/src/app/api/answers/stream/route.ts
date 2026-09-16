@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { parseAnswerInput, prepareAnswer, streamAnswer } from '@/lib/answer';
 import { ApiError, handle, readJson } from '@/lib/api';
+import { requestLocale } from '@/lib/request-locale';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,7 @@ const PARTIAL_INTERVAL_MS = 100;
 export async function POST(req: NextRequest) {
   return handle(async () => {
     const input = parseAnswerInput(await readJson<unknown>(req));
+    input.language ??= requestLocale(req);
     const cancellation = new AbortController();
     const signal = AbortSignal.any([req.signal, cancellation.signal]);
     // Validation, source retrieval and model configuration retain ordinary HTTP

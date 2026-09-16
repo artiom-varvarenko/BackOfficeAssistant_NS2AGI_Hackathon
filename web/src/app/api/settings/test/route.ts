@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { ApiError, handle, readJson } from '@/lib/api';
 import { generateStructured } from '@/lib/llm';
-import { getTaskModel } from '@/lib/settings';
+import { getTaskModel, setSetting } from '@/lib/settings';
 import { invalidInput, jsonObject } from '@/lib/source-forms';
 import type { LlmTask, ProviderId } from '@/lib/types';
 
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       });
       const ok = call.output.ok === true;
       result = { ok, latencyMs: call.latencyMs, provider: call.provider, model: call.model };
+      if (ok) setSetting('model.lastSuccessfulTest', `${call.provider}/${call.model} · ${new Date().toISOString()}`);
       if (!ok) result.error = 'Het model antwoordde niet met ok=true.';
     } catch (err) {
       if (!(err instanceof ApiError)) throw err;

@@ -1,7 +1,8 @@
 'use client';
 
+import { useLocale } from './LanguageProvider';
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 
 interface ReviewRegistration {
   needsSave: () => boolean;
@@ -51,6 +52,7 @@ export function writeReviewDraft(id: string, draft: ReviewDraft | null) {
 }
 
 export function ReviewNavigationProvider({ children }: { children: ReactNode }) {
+  const { t } = useLocale();
   const router = useRouter();
   const pathname = usePathname();
   const reviews = useRef(new Set<ReviewRegistration>());
@@ -59,23 +61,33 @@ export function ReviewNavigationProvider({ children }: { children: ReactNode }) 
   const navigationAttempt = useRef(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const invalidateNavigation = useCallback(() => {
+  const [activePathname, setActivePathname] = useState(pathname);
+  // Reset this provider's status before rendering the new page, while keeping
+  // its children and editor registrations mounted across route transitions.
+  if (activePathname !== pathname) {
+    setActivePathname(pathname);
+    setSaving(false);
+    setError('');
+  }
+  const invalidatePendingNavigation = useCallback(() => {
     navigationAttempt.current++;
     navigating.current = false;
     // The server request can finish, but no longer owns this page's navigation.
     savingPromise.current = null;
+  }, []);
+  const invalidateNavigation = useCallback(() => {
+    invalidatePendingNavigation();
     setSaving(false);
     setError('');
-  }, []);
-  useEffect(() => { invalidateNavigation(); }, [pathname, invalidateNavigation]);
+  }, [invalidatePendingNavigation]);
+  useLayoutEffect(() => { invalidatePendingNavigation(); }, [pathname, invalidatePendingNavigation]);
   useEffect(() => {
     window.addEventListener('popstate', invalidateNavigation);
     return () => {
       window.removeEventListener('popstate', invalidateNavigation);
-      navigationAttempt.current++;
-      savingPromise.current = null;
+      invalidatePendingNavigation();
     };
-  }, [invalidateNavigation]);
+  }, [invalidateNavigation, invalidatePendingNavigation]);
 
   const register = useCallback((review: ReviewRegistration) => {
     reviews.current.add(review);
@@ -124,8 +136,8 @@ export function ReviewNavigationProvider({ children }: { children: ReactNode }) 
 
   const value = useMemo(() => ({ register, flush, saving }), [register, flush, saving]);
   return <ReviewNavigationContext.Provider value={value}><div style={{ display: 'contents' }} onClickCapture={capture}>
-    {error && <div className="notice notice-red review-navigation-error" role="alert"><p>{error}</p><button type="button" onClick={() => setError('')}>Melding sluiten</button></div>}
-    <span className="sr-only" role="status" aria-live="polite">{saving ? 'Wijzigingen controleren voordat u verdergaat…' : ''}</span>
+    {error && <div className="notice notice-red review-navigation-error" role="alert"><p>{t(error)}</p><button type="button" onClick={() => setError('')}>{t("Melding sluiten")}</button></div>}
+    <span className="sr-only" role="status" aria-live="polite">{saving ? t("Wijzigingen controleren voordat u verdergaat…") : ''}</span>
     {children}
   </div></ReviewNavigationContext.Provider>;
 }

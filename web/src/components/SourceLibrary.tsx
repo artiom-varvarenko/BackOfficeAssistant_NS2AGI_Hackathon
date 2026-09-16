@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from './LanguageProvider';
+
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { getSettings, getSources } from '@/lib/api-client';
 import type { Source } from '@/lib/types';
@@ -7,12 +9,14 @@ import { SourceForm, sourceError } from './SourceForm';
 import { SourceTable } from './SourceTable';
 import { SearchPanel } from './SearchPanel';
 import { useToast } from './Toast';
+import { Icon } from './Icon';
 
 export function SourceLibrary() {
+  const { t, locale } = useLocale();
   const toast = useToast();
   const [sources, setSources] = useState<Source[] | null>(null);
   const [error, setError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
   const [notice, setNotice] = useState('');
   const [mode, setMode] = useState<'pdf' | 'url' | null>(null);
   const [municipality, setMunicipality] = useState('');
@@ -25,14 +29,22 @@ export function SourceLibrary() {
     }
   }, [mode]);
   const request = useRef(0);
-  const refresh = useCallback(async () => {
+  const load = useCallback(() => {
     const current = ++request.current;
-    setRefreshing(true); setError('');
-    try { const result = await getSources(); if (current === request.current) setSources(result); }
-    catch (failure) { if (current === request.current) setError(sourceError(failure)); }
-    finally { if (current === request.current) setRefreshing(false); }
+    return getSources()
+      .then((result) => { if (current === request.current) { setSources(result); setError(''); } })
+      .catch((failure) => { if (current === request.current) setError(sourceError(failure)); })
+      .finally(() => { if (current === request.current) setRefreshing(false); });
   }, []);
-  useEffect(() => { void refresh(); return () => { request.current++; }; }, [refresh]);
+  const refresh = useCallback(() => {
+    setRefreshing(true); setError('');
+    return load();
+  }, [load]);
+  useEffect(() => {
+    const activeRequests = request;
+    void load();
+    return () => { activeRequests.current++; };
+  }, [load]);
   useEffect(() => {
     let alive = true;
     getSettings().then((settings) => { if (alive) setMunicipality(settings.municipality); }).catch(() => { /* The scope remains editable if settings are unavailable. */ });
@@ -54,20 +66,23 @@ export function SourceLibrary() {
   }
   function added(source: Source) {
     changed(source); setMode(null);
-    const message = source.currentVersion?.processingStatus === 'failed' ? `Bron toegevoegd, verwerking mislukt: ${source.currentVersion.processingError ?? 'Onbekende fout'}` : `Bron “${source.title}” toegevoegd.`;
+    const message = source.currentVersion?.processingStatus === 'failed' ? t('Bron toegevoegd, verwerking mislukt: {error}', { error: t(source.currentVersion.processingError ?? 'Onbekende fout') }) : t('Bron “{title}” toegevoegd.', { title: source.title });
     setNotice(message); toast(message);
   }
   function openForm(value: 'pdf' | 'url', trigger: HTMLButtonElement) {
     formTrigger.current = trigger; setMode(value); setNotice('');
   }
+  const activeSources = sources?.filter((source) => source.enabled && source.currentVersion?.processingStatus === 'ready') ?? [];
+  const searchablePassages = activeSources.reduce((total, source) => total + (source.currentVersion?.passageCount ?? 0), 0);
   return <>
-    <div className="page-heading"><div><h1>Bronnen</h1><p>Alleen ingeschakelde en verwerkte bronnen worden gebruikt voor nieuwe antwoorden. Eerdere antwoorden behouden hun eigen bronversies.</p></div></div>
-    <div className="actions"><button className="primary" type="button" onClick={(event) => openForm('pdf', event.currentTarget)} disabled={mode !== null} aria-expanded={mode === 'pdf'} aria-controls={mode === 'pdf' ? formId : undefined}>Bron toevoegen (PDF)</button><button type="button" onClick={(event) => openForm('url', event.currentTarget)} disabled={mode !== null} aria-expanded={mode === 'url'} aria-controls={mode === 'url' ? formId : undefined}>Bron toevoegen via URL</button><button type="button" onClick={() => { void refresh(); }} disabled={refreshing}>{refreshing ? 'Vernieuwen…' : 'Vernieuwen'}</button></div>
+    <div className="page-heading"><div><p className="eyebrow">{t("UW KENNISBASIS")}</p><h1>{t("Bronnen")}</h1><p>{t("De documenten achter ieder onderbouwd antwoord. Beheer hun inhoud, versie en toepasselijkheid op één plek.")}</p></div></div>
+    {sources && <div className="library-stats" aria-label={t("Overzicht van de kennisbasis")}><div className="library-stat"><strong>{sources.length}</strong><span>{t("Documenten in uw bibliotheek")}</span></div><div className="library-stat"><strong>{activeSources.length}</strong><span>{t("Actief en verwerkt")}</span></div><div className="library-stat"><strong>{searchablePassages.toLocaleString(locale === 'en' ? 'en-GB' : 'nl-BE')}</strong><span>{t("Doorzoekbare passages")}</span></div></div>}
+    <div className="actions library-toolbar"><button className="primary" type="button" onClick={(event) => openForm('pdf', event.currentTarget)} disabled={mode !== null} aria-expanded={mode === 'pdf'} aria-controls={mode === 'pdf' ? formId : undefined}><Icon name="plus" size={18} />{t("Bron toevoegen (PDF)")}</button><button type="button" onClick={(event) => openForm('url', event.currentTarget)} disabled={mode !== null} aria-expanded={mode === 'url'} aria-controls={mode === 'url' ? formId : undefined}><Icon name="link" size={18} />{t("Bron toevoegen via URL")}</button><button type="button" onClick={() => { void refresh(); }} disabled={refreshing}><Icon name="refresh" size={18} />{refreshing ? t("Vernieuwen…") : t("Vernieuwen")}</button></div>
     {mode && <section className="card" id={formId}><SourceForm key={mode} mode={mode} defaultScope={municipality} onSaved={added} onCancel={() => setMode(null)} onFailure={() => { void refresh(); }} onStart={invalidateRefresh} /></section>}
-    {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
-    {error && <section className="card notice-red" role="alert"><p>Bronnen konden niet worden geladen. {error}</p><button onClick={() => { void refresh(); }}>Opnieuw proberen</button></section>}
-    {sources === null && !error && <p className="card" role="status" aria-live="polite">Bronnen laden…</p>}
-    {sources && <><p className="muted">{sources.length} bronnen · {sources.filter((source) => source.enabled && source.currentVersion?.processingStatus === 'ready').length} actief en verwerkt</p><SourceTable sources={sources} onChange={changed} onFailure={() => { void refresh(); }} onMutationStart={invalidateRefresh} /></>}
-    <details><summary>Zoek rechtstreeks in de bronnen (zonder AI)</summary><SearchPanel /></details>
+    {notice && <p className="notice" role="status" aria-live="polite">{t(notice)}</p>}
+    {error && <section className="card notice-red" role="alert"><p>{t("Bronnen konden niet worden geladen.")}{' '}{t(error)}</p><button onClick={() => { void refresh(); }}>{t("Opnieuw proberen")}</button></section>}
+    {sources === null && !error && <p className="card" role="status" aria-live="polite">{t("Bronnen laden…")}</p>}
+    {sources && <><p className="muted">{t("Alleen actieve, verwerkte bronnen worden doorzocht. Eerdere antwoorden behouden hun eigen bronversies.")}</p><SourceTable sources={sources} onChange={changed} onFailure={() => { void refresh(); }} onMutationStart={invalidateRefresh} /></>}
+    <details><summary>{t("Zoek rechtstreeks in de bronnen (zonder AI)")}</summary><SearchPanel /></details>
   </>;
 }

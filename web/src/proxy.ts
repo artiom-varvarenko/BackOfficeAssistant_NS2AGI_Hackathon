@@ -67,13 +67,13 @@ export async function proxy(request: NextRequest) {
       if (path === '/api' || path.startsWith('/api/')) {
         throw new ApiError(401, 'unauthorized', 'Meld u aan om de werkruimte te openen.');
       }
-      // Relative Location never leaks localhost from Next's internal URL, never
-      // trusts a forwarded host, and cannot redirect to an external origin.
+      // Next's Proxy adapter requires an absolute redirect URL. Its origin
+      // comes from the validated public Host/scheme, never the internal Next
+      // URL or an untrusted forwarded host; the return target stays relative.
       const next = `${request.nextUrl.pathname}${request.nextUrl.search}`;
-      return new Response(null, {
-        status: reading ? 307 : 303,
-        headers: { Location: `/login?${new URLSearchParams({ next })}` },
-      });
+      const loginUrl = new URL('/login', context.origin);
+      loginUrl.searchParams.set('next', next);
+      return NextResponse.redirect(loginUrl, reading ? 307 : 303);
     }
 
     // All POSTs in these model-bearing families share ONE 10/min client bucket.

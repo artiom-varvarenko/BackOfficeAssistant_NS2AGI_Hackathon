@@ -1,5 +1,6 @@
 'use client';
 
+import { useLocale } from './LanguageProvider';
 import Link from 'next/link';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { ApiClientError } from '@/lib/api-client';
@@ -12,6 +13,11 @@ function releaseMedia(element: HTMLAudioElement | null) {
 }
 
 export function ReadAloudButton({ loadAudio, revision, disabled = false }: { loadAudio: () => Promise<Blob>; revision: string; disabled?: boolean }) {
+  return <PlaybackButton key={revision} loadAudio={loadAudio} disabled={disabled} />;
+}
+
+function PlaybackButton({ loadAudio, disabled }: { loadAudio: () => Promise<Blob>; disabled: boolean }) {
+  const { t } = useLocale();
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -40,19 +46,16 @@ export function ReadAloudButton({ loadAudio, revision, disabled = false }: { loa
     }
   }, [url]);
 
-  // Invalidate during commit so old results cannot start playback after a revision change.
+  // A revision remounts only playback. Invalidate during commit so an old
+  // request cannot start playing after the officer changes the text.
   useLayoutEffect(() => {
     mounted.current = true;
-    setUrl(null);
-    setBusy(false);
-    setError('');
-    setNeedsSettings(false);
     return () => {
       mounted.current = false;
       request.current += 1;
       releaseAudio();
     };
-  }, [revision, releaseAudio]);
+  }, [releaseAudio]);
 
   async function read() {
     const id = ++request.current;
@@ -80,15 +83,15 @@ export function ReadAloudButton({ loadAudio, revision, disabled = false }: { loa
   }
 
   return <div className="read-aloud">
-    <button type="button" disabled={disabled || busy} onClick={() => void read()}>{busy ? 'Audio maken…' : 'Lees voor'}</button>
-    {busy && <span className="sr-only" role="status">Audio van de tekst voor communicatie wordt gemaakt.</span>}
-    {url && <div><audio key={url} ref={setAudioElement} controls autoPlay src={url} aria-label="Voorgelezen tekst voor communicatie" onError={(event) => {
+    <button type="button" disabled={disabled || busy} onClick={() => void read()}>{busy ? t("Audio maken…") : t("Lees voor")}</button>
+    {busy && <span className="sr-only" role="status">{t("Audio van de tekst voor communicatie wordt gemaakt.")}</span>}
+    {url && <div><audio key={url} ref={setAudioElement} controls autoPlay src={url} aria-label={t("Voorgelezen tekst voor communicatie")} onError={(event) => {
       if (!mounted.current || event.currentTarget !== audio.current || currentUrl.current !== url) return;
       releaseAudio();
       setUrl(null);
       setNeedsSettings(false);
-      setError('De browser kan deze audio niet afspelen. Probeer opnieuw.');
-    }} /><p className="muted">De eerste 2.500 tekens worden voorgelezen, zonder bronverwijzingsnummers.</p></div>}
-    {error && <p className="notice notice-red" role="alert">{error}{needsSettings && <> <Link href="/instellingen">Ga naar Instellingen</Link> om voorlezen in te stellen.</>}</p>}
+      setError(t("De browser kan deze audio niet afspelen. Probeer opnieuw."));
+    }} /><p className="muted">{t("De eerste 2.500 tekens worden voorgelezen, zonder bronverwijzingsnummers.")}</p></div>}
+    {error && <p className="notice notice-red" role="alert">{t(error)}{needsSettings && <> <Link href="/instellingen">{t("Ga naar Instellingen")}</Link>{' '}{t("om voorlezen in te stellen.")}</>}</p>}
   </div>;
 }

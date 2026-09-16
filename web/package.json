@@ -7,7 +7,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "check": "tsc --noEmit --incremental false",
+    "verify:core": "tsx scripts/verify-core.ts",
+    "verify:enrichment": "tsx scripts/check-enrichment-warnings.ts",
+    "verify:settings": "tsx scripts/test-model-snapshot.mts",
+    "verify:auth": "tsx scripts/test-auth-redirect.mts",
+    "verify:http": "tsx scripts/verify-http.ts",
+    "acceptance": "tsx scripts/acceptance.ts",
+    "demo:tunnel": "tsx scripts/demo-tunnel.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.54",

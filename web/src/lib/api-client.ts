@@ -1,7 +1,8 @@
 import type { Answer, AnswerListItem, ApiError, Citation, EventLogItem, LlmTask, Passage, ProviderId, SearchHit, Settings, Source, SourceVersion, TaskModel } from './types';
+import { getClientLocale, translate } from './i18n';
 
 export class ApiClientError extends Error {
-  constructor(public code: string, message: string, public status = 0) { super(message); this.name = 'ApiClientError'; }
+  constructor(public code: string, message: string, public status = 0) { super(translate(message, getClientLocale())); this.name = 'ApiClientError'; }
 }
 async function response(path: string, init?: RequestInit) {
   let result: Response;

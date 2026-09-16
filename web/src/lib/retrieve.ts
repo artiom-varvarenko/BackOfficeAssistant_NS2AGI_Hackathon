@@ -39,12 +39,35 @@ const SEARCH_LIMIT = 20;
 const HYBRID_CANDIDATE_LIMIT = 40;
 const RRF_K = 60;
 
-// PLAN.md section 8.4, verbatim.
+// PLAN.md section 8.4 stop words, extended for the English interface.
 const STOP_WORDS: Record<string, true> = Object.fromEntries(
-  'de het een en van in op ik wil hoe wat is dat die voor met te om er ook aan bij dan mijn moet kan naar als zijn of niet wordt worden dien deze dit hoeveel welke waar wanneer nog'
+  'de het een en van in op ik wil hoe wat is dat die voor met te om er ook aan bij dan mijn moet kan naar als zijn of niet wordt worden dien deze dit hoeveel welke waar wanneer nog the and for how what which where when with without can must should does want need are this that from have would your once'
     .split(' ')
     .map((w) => [w, true]),
 );
+
+// English officers search the original Dutch corpus. Expand municipal business
+// vocabulary for BM25; quoted evidence is never translated or manufactured.
+// Hybrid mode additionally embeds the original question across languages.
+const ENGLISH_QUERY_TERMS: Record<string, string[]> = {
+  market: ['markt'], markets: ['markten'], stall: ['standplaats', 'kraam'], stalls: ['standplaatsen', 'kramen'],
+  pitch: ['standplaats', 'kavel'], permanent: ['vaste', 'abonnement'], fixed: ['vaste'],
+  apply: ['aanvraag', 'indienen'], application: ['aanvraag', 'formulier'], applications: ['aanvragen'],
+  register: ['aanmelden', 'registreren'], registration: ['aanmelding', 'registratie', 'inschrijving'],
+  saturday: ['zaterdag'], cost: ['kostprijs', 'retributie', 'euro'], costs: ['kosten', 'retributie'],
+  fee: ['retributie', 'tarief'], fees: ['retributies', 'tarieven'], electricity: ['elektriciteit'],
+  half: ['halfjaarlijks', 'halfjaar'], year: ['jaar'], yearly: ['jaarlijks'], annual: ['jaarlijks'],
+  subscription: ['abonnement'], subscriptions: ['abonnementen'], waiting: ['wachtlijst'],
+  confirm: ['bevestigen'], confirmation: ['bevestiging'], cancel: ['opzeggen', 'stopzetting'],
+  cancellation: ['opzegging'], stop: ['stoppen', 'opzeggen'], close: ['stopzetting'],
+  business: ['zaak', 'onderneming'], businesses: ['ondernemingen'], entrepreneur: ['ondernemer'],
+  startup: ['startpremie', 'starten'], grant: ['premie', 'subsidie'], grants: ['premies', 'subsidies'],
+  employed: ['zelfstandige'], support: ['ondersteuning'], food: ['voeding', 'voedsel', 'levensmiddelen', 'favv'],
+  license: ['machtiging', 'leurkaart'], licence: ['machtiging', 'leurkaart'], card: ['leurkaart'],
+  sell: ['verkopen', 'verkoop'], selling: ['verkopen', 'verkoop'], trade: ['handel', 'ambulante'],
+  terrace: ['terras', 'terrassen'], tables: ['tafels', 'terras'], permit: ['vergunning', 'toelating'],
+  requirements: ['voorwaarden'], documents: ['documenten', 'bijlagen'], waitinglist: ['wachtlijst'],
+};
 
 // Lowercase, fold diacritics the way the unicode61 tokenizer does (so "één"
 // is recognised as the stop word "een"), split on anything that is not a
@@ -55,6 +78,7 @@ export function tokenizeQuery(q: string): string[] {
   for (const token of folded.split(/[^\p{L}\p{N}]+/u)) {
     if (token.length < 3 || STOP_WORDS[token] === true) continue;
     seen.add(token);
+    for (const translation of ENGLISH_QUERY_TERMS[token] ?? []) seen.add(translation);
   }
   return Array.from(seen);
 }

@@ -187,7 +187,7 @@ export interface Settings {
   tts: { provider: 'none' | 'elevenlabs' | 'openai'; voiceId: string | null; hasKey: boolean };
   retrieval: { mode: 'bm25' | 'hybrid'; embeddingsAvailable: boolean };
   municipality: string;
-  testedConfiguration: string; // "openai/gpt-6-astra"
+  testedConfiguration: string; // Last successful model connection test, or an explicit untested notice.
 }
 
 export interface EventLogItem {

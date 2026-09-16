@@ -5,6 +5,7 @@ import type { NextRequest } from 'next/server';
 import { generateAnswer } from '@/lib/answer';
 import { ApiError, handle } from '@/lib/api';
 import { getAnswer } from '@/lib/dto';
+import { requestLocale } from '@/lib/request-locale';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!old) throw new ApiError(404, 'not_found', 'Antwoord niet gevonden.');
     const answer = await generateAnswer({
       question: old.question,
+      language: requestLocale(req),
       sourceIds: old.scopeSourceIds,
       regeneratedFromId: old.id,
     }, req.signal);

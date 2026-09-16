@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { ApiError, handle } from '@/lib/api';
 import { getSource } from '@/lib/dto';
 import { addVersion } from '@/lib/ingest';
+import { requestLocale } from '@/lib/request-locale';
 import { parseVersionFields, readForm, readUpload } from '@/lib/source-forms';
 
 export const runtime = 'nodejs';
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const form = await readForm(req);
     const upload = await readUpload(form);
     const version = parseVersionFields(form);
-    await addVersion(upload.buffer, id, { fileName: upload.fileName, ...version });
+    await addVersion(upload.buffer, id, { fileName: upload.fileName, ...version }, requestLocale(req));
     return Response.json(getSource(id));
   });
 }

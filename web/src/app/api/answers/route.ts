@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { generateAnswer, parseAnswerInput } from '@/lib/answer';
 import { handle, readJson } from '@/lib/api';
 import { listAnswers } from '@/lib/dto';
+import { requestLocale } from '@/lib/request-locale';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   return handle(async () => {
     const input = parseAnswerInput(await readJson<unknown>(req));
+    input.language ??= requestLocale(req);
     const answer = await generateAnswer(input, req.signal);
     return Response.json(answer, { status: 201 });
   });

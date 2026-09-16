@@ -1,9 +1,11 @@
 'use client';
 
+import { useLocale } from './LanguageProvider';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type { Answer, AnswerStatus } from '@/lib/types';
+import { getClientLocale, translate } from '@/lib/i18n';
 import { ApiClientError, readAnswerAloud, type ReviewPatch } from '@/lib/api-client';
 import { Badge, StatusBadge } from './Badge';
 import { EmailDraftModal } from './EmailDraftModal';
@@ -12,7 +14,8 @@ import { readReviewDraft, useReviewNavigation, writeReviewDraft, type ReviewDraf
 import { useToast } from './Toast';
 
 export function copyTextWithSources(text: string, answer: Answer) {
-  return `${text}\n\nBronnen:\n${answer.citations.map((c) => `[${c.marker}] ${c.sourceTitle} — ${[c.article, c.section].filter(Boolean).join(' ') || 'Passage'} — p. ${c.pageStart}${c.pageEnd !== c.pageStart ? `–${c.pageEnd}` : ''} — ${c.originalUrl ?? '(intern document)'}`).join('\n')}`;
+  const locale = getClientLocale();
+  return `${text}\n\n${translate('Bronnen:', locale)}\n${answer.citations.map((c) => `[${c.marker}] ${c.sourceTitle} — ${[c.article, c.section].filter(Boolean).join(' ') || translate('Passage', locale)} — p. ${c.pageStart}${c.pageEnd !== c.pageStart ? `–${c.pageEnd}` : ''} — ${c.originalUrl ?? translate('(intern document)', locale)}`).join('\n')}`;
 }
 
 export interface ReviewCardHandle { flush: () => Promise<Answer> }
@@ -26,9 +29,10 @@ interface ReviewCardProps {
 }
 
 export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function ReviewCard({ answer, onSave, onAwaitIdle, onEmailDraft, busy, locked = false }, ref) {
+  const { t } = useLocale();
   const router = useRouter();
   const toast = useToast();
-  const navigation = useReviewNavigation();
+  const { register, saving: navigationSaving } = useReviewNavigation();
   const [text, setText] = useState(answer.reviewedAnswer ?? answer.generatedAnswer);
   const [note, setNote] = useState(answer.reviewNote ?? '');
   const [message, setMessage] = useState('');
@@ -42,14 +46,14 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
   const reviewQueue = useRef<Promise<unknown>>(Promise.resolve());
   const emailTrigger = useRef<HTMLElement | null>(null);
   const mounted = useRef(true);
-  const latest = useRef({ answer, text, note, onSave, onAwaitIdle });
-  latest.current = { answer, text, note, onSave, onAwaitIdle };
+  const latest = useRef({ answer, text, note, onSave, onAwaitIdle, recoveredDraft });
+  useLayoutEffect(() => { latest.current = { answer, text, note, onSave, onAwaitIdle, recoveredDraft }; });
   const textChanged = text !== (answer.reviewedAnswer ?? answer.generatedAnswer);
   const changed = textChanged || note !== (answer.reviewNote ?? '');
-  const controlsBusy = busy || navigation.saving;
-  const editorLocked = acting || locked || navigation.saving || recoveredDraft !== null;
+  const controlsBusy = busy || navigationSaving;
+  const editorLocked = acting || locked || navigationSaving || recoveredDraft !== null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
@@ -76,7 +80,7 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
   }
 
   // Compare queued edits against persisted state after preceding mutations finish.
-  function flush(): Promise<Answer> {
+  const flush = useCallback((): Promise<Answer> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     const snapshot = { text: latest.current.text, note: latest.current.note };
@@ -93,7 +97,7 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
     }).then((saved) => {
       // A previous page instance must never overwrite a newly recovered draft.
       // Keep a conflict draft until the officer explicitly chooses which text to use.
-      if (!mounted.current || recoveredDraft) return saved;
+      if (!mounted.current || latest.current.recoveredDraft) return saved;
       const savedText = saved.reviewedAnswer ?? saved.generatedAnswer;
       const savedNote = saved.reviewNote ?? '';
       // Apply server normalisation only to fields not edited during the request.
@@ -107,18 +111,18 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
     });
     reviewQueue.current = operation;
     return operation;
-  }
+  }, []);
 
-  useImperativeHandle(ref, () => ({ flush }));
+  useImperativeHandle(ref, () => ({ flush }), [flush]);
 
   const registered = useRef({ needsSave: changed || busy || acting, flush });
-  registered.current = { needsSave: changed || busy || acting, flush };
-  useEffect(() => navigation.register({
+  useLayoutEffect(() => { registered.current = { needsSave: changed || busy || acting, flush }; });
+  useEffect(() => register({
     needsSave: () => registered.current.needsSave,
     flush: () => registered.current.flush(),
-  }), [navigation.register, answer.id]);
+  }), [register, answer.id]);
 
-  useEffect(() => {
+  const restoreDraft = useEffectEvent(() => {
     const local = readReviewDraft(answer.id);
     if (!local) return;
     const savedText = answer.reviewedAnswer ?? answer.generatedAnswer;
@@ -133,7 +137,8 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
     setText(local.text);
     setNote(local.note);
     setMessage('Niet-opgeslagen wijzigingen uit deze browsersessie hersteld.');
-  }, [answer.id]);
+  });
+  useEffect(() => { restoreDraft(); }, [answer.id]);
 
 
   useEffect(() => {
@@ -144,7 +149,7 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
       void flush().then(() => setError('')).catch((reason) => setError(reason instanceof Error ? reason.message : 'Opslaan mislukt.'));
     }, 600);
     return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [text, note, changed, acting]);
+  }, [text, note, changed, acting, flush]);
 
   useEffect(() => {
     if (!changed && !busy) return;
@@ -210,35 +215,35 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
   }
 
   return <section className="card review-card">
-    <div className="section-heading"><h2>Beoordeling door de medewerker</h2><StatusBadge status={textChanged ? 'draft' : answer.status} /></div>
-    {recoveredDraft && <section className="notice notice-amber"><p>Er is een niet-opgeslagen concept uit deze browsersessie. Het opgeslagen antwoord is intussen gewijzigd.</p><details><summary>Bekijk het lokale concept</summary><p className="answer-text">{recoveredDraft.text}</p>{recoveredDraft.note && <p className="answer-text">Opmerking: {recoveredDraft.note}</p>}</details><button type="button" disabled={acting || locked || navigation.saving} onClick={() => {
+    <div className="section-heading"><h2>{t("Beoordeling door de medewerker")}</h2><StatusBadge status={textChanged ? 'draft' : answer.status} /></div>
+    {recoveredDraft && <section className="notice notice-amber"><p>{t("Er is een niet-opgeslagen concept uit deze browsersessie. Het opgeslagen antwoord is intussen gewijzigd.")}</p><details><summary>{t("Bekijk het lokale concept")}</summary><p className="answer-text">{recoveredDraft.text}</p>{recoveredDraft.note && <p className="answer-text">{t("Opmerking:")}{' '}{recoveredDraft.note}</p>}</details><button type="button" disabled={acting || locked || navigationSaving} onClick={() => {
       latest.current.text = recoveredDraft.text;
       latest.current.note = recoveredDraft.note;
       setText(recoveredDraft.text);
       setNote(recoveredDraft.note);
       rememberDraft(recoveredDraft.text, recoveredDraft.note);
       setRecoveredDraft(null);
-    }}>Herstel lokaal concept in het tekstveld</button> <button type="button" disabled={acting || locked || navigation.saving} onClick={() => { writeReviewDraft(answer.id, null); setRecoveredDraft(null); }}>Gebruik opgeslagen tekst</button></section>}
-    <p className="muted">{answer.citations.filter((citation) => citation.checked).length}/{answer.citations.length} passages gecontroleerd</p>
-    <label className="field">Tekst voor communicatie (bewerkbaar)<textarea rows={11} value={text} disabled={editorLocked} onChange={(event) => changeText(event.target.value)} /></label>
-    <div className="review-meta"><Badge tone={text !== answer.generatedAnswer ? 'amber' : 'neutral'}>{text !== answer.generatedAnswer ? 'Aangepast door medewerker' : 'Ongewijzigd t.o.v. het gegenereerde antwoord'}</Badge><button type="button" className="text-button" onClick={() => changeText(answer.generatedAnswer)} disabled={editorLocked || text === answer.generatedAnswer}>Herstel gegenereerde tekst</button></div>
-    <label className="field">Opmerking (optioneel)<textarea rows={2} value={note} disabled={editorLocked} onChange={(event) => changeNote(event.target.value)} /></label>
+    }}>{t("Herstel lokaal concept in het tekstveld")}</button> <button type="button" disabled={acting || locked || navigationSaving} onClick={() => { writeReviewDraft(answer.id, null); setRecoveredDraft(null); }}>{t("Gebruik opgeslagen tekst")}</button></section>}
+    <div className="review-progress"><div><span>{t("Bewijs gecontroleerd")}</span><strong>{answer.citations.filter((citation) => citation.checked).length}/{answer.citations.length}{' '}{t("passages gecontroleerd")}</strong></div><progress aria-label={t("Gecontroleerde bronpassages")} value={answer.citations.filter((citation) => citation.checked).length} max={Math.max(1, answer.citations.length)} /></div>
+    <label className="field">{t("Tekst voor communicatie (bewerkbaar)")}<textarea rows={11} value={text} disabled={editorLocked} onChange={(event) => changeText(event.target.value)} /></label>
+    <div className="review-meta"><Badge tone={text !== answer.generatedAnswer ? 'amber' : 'neutral'}>{text !== answer.generatedAnswer ? t("Aangepast door medewerker") : t("Ongewijzigd t.o.v. het gegenereerde antwoord")}</Badge><button type="button" className="text-button" onClick={() => changeText(answer.generatedAnswer)} disabled={editorLocked || text === answer.generatedAnswer}>{t("Herstel gegenereerde tekst")}</button></div>
+    <label className="field">{t("Opmerking (optioneel)")}<textarea rows={2} value={note} disabled={editorLocked} onChange={(event) => changeNote(event.target.value)} /></label>
     <div className="actions">
-      <button type="button" className="primary" disabled={controlsBusy || acting || (!changed && answer.status === 'approved')} onClick={() => void save('approved')}>Goedkeuren</button>
-      <button type="button" className="danger-button" disabled={controlsBusy || acting || (!changed && answer.status === 'rejected')} onClick={() => void save('rejected')}>Afwijzen</button>
-      {answer.status !== 'draft' && <button type="button" disabled={controlsBusy || acting} onClick={() => void save('draft')}>Heropenen</button>}
-      <button type="button" disabled={controlsBusy || acting || !changed} onClick={() => void save()}>Wijzigingen opslaan</button>
+      <button type="button" className="primary" disabled={controlsBusy || acting || (!changed && answer.status === 'approved')} onClick={() => void save('approved')}>{t("Goedkeuren")}</button>
+      <button type="button" className="danger-button" disabled={controlsBusy || acting || (!changed && answer.status === 'rejected')} onClick={() => void save('rejected')}>{t("Afwijzen")}</button>
+      {answer.status !== 'draft' && <button type="button" disabled={controlsBusy || acting} onClick={() => void save('draft')}>{t("Heropenen")}</button>}
+      <button type="button" disabled={controlsBusy || acting || !changed} onClick={() => void save()}>{t("Wijzigingen opslaan")}</button>
     </div>
     <div className="actions">
-      <button type="button" disabled={controlsBusy || acting} onClick={() => void copy()}>Kopieer tekst</button>
-      <button type="button" disabled={controlsBusy || acting} onClick={() => void email()}>Maak e-mailconcept</button>
-      <button type="button" disabled={controlsBusy || acting} onClick={() => void briefing()}>Briefing afdrukken</button>
+      <button type="button" disabled={controlsBusy || acting} onClick={() => void copy()}>{t("Kopieer tekst")}</button>
+      <button type="button" disabled={controlsBusy || acting} onClick={() => void email()}>{t("Maak e-mailconcept")}</button>
+      <button type="button" disabled={controlsBusy || acting} onClick={() => void briefing()}>{t("Briefing afdrukken")}</button>
       <ReadAloudButton revision={`${answer.id}:${text.trimEnd()}`} disabled={controlsBusy || acting} loadAudio={() => withSaved((saved) => readAnswerAloud(saved.id))} />
     </div>
-    {answer.emailDraft && <button type="button" className="text-button" disabled={acting} onClick={(event) => { emailTrigger.current = event.currentTarget; setDraft(answer.emailDraft); }}>Bekijk laatst opgeslagen e-mailconcept</button>}
-    <p className="muted">U bepaalt welke tekst wordt gebruikt. Er wordt niets automatisch verzonden.</p>
-    <p className="save-status" role="status" aria-live="polite">{acting ? 'Actie uitvoeren…' : busy ? 'Wijzigingen opslaan…' : changed ? 'Niet-opgeslagen wijzigingen' : message || 'Alle wijzigingen opgeslagen.'}</p>
-    {error && <p className="notice notice-red" role="alert">{error}{needsSettings && <> <Link href="/instellingen">Ga naar Instellingen</Link></>}</p>}
+    {answer.emailDraft && <button type="button" className="text-button" disabled={acting} onClick={(event) => { emailTrigger.current = event.currentTarget; setDraft(answer.emailDraft); }}>{t("Bekijk laatst opgeslagen e-mailconcept")}</button>}
+    <p className="muted">{t("U bepaalt welke tekst wordt gebruikt. Er wordt niets automatisch verzonden.")}</p>
+    <p className="save-status" role="status" aria-live="polite">{acting ? t("Actie uitvoeren…") : busy ? t("Wijzigingen opslaan…") : changed ? t("Niet-opgeslagen wijzigingen") : t(message) || t("Alle wijzigingen opgeslagen.")}</p>
+    {error && <p className="notice notice-red" role="alert">{t(error)}{needsSettings && <> <Link href="/instellingen">{t("Ga naar Instellingen")}</Link></>}</p>}
     {draft !== null && <EmailDraftModal draft={draft} onClose={() => {
       setDraft(null);
       window.requestAnimationFrame(() => { if (emailTrigger.current?.isConnected) emailTrigger.current.focus(); });

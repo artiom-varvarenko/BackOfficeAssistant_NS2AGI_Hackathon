@@ -1,13 +1,13 @@
 # Economie-assistent — implementation plan v2 (PROV-AI Challenge 2, team of 2, one afternoon)
 
-Planning language: English. Everything the officer sees (UI text, answers, e-mail draft, briefing) is Dutch.
+Planning language: English. Dutch is the default officer language; the current user request adds a complete English mode for the interface and newly generated answers, e-mail drafts and summaries. The NL / EN switch persists the choice; source quotations and existing saved content retain their original language.
 Deadline: **16:30 CEST today** (YouTube link via the Google Form; late = not accepted). Working demo on our laptop = optional jury bonus.
 
-**Current execution handoff:** read [HANDOFF.md](HANDOFF.md) and section 18 before continuing. The remaining work has been transferred to another agent/laptop; there are overlapping completion candidates that must be reconciled. This plan describes requirements, not a claim that all acceptance items passed.
+**Current integration status:** both laptop branches have been reconciled, with a redesigned responsive UI and complete NL / EN interface support. Read [docs/final-integration.md](docs/final-integration.md) for the combined implementation, fixes, repeatable checks, and remaining real-provider/demo acceptance. HANDOFF.md and sections 17–18 are historical checkpoints. This plan describes requirements, not a claim that all acceptance items passed.
 
 Everything here was derived from the nine PDFs in `data/` ("the pack"), the live Notion pages, the challenge page, `data/agent.md`, and the official model pages of OpenAI, Anthropic, Google and Mistral (all read today). Assumptions are marked **[assumption]**.
 
-**What changed in v2:** (1) all nine pack documents are ingested and used, each with its own status; (2) the model layer is provider-neutral — the officer/admin chooses provider, model and API key per task in a settings screen (OpenAI GPT-6 / GPT-5.6 are the tested defaults); (3) second-pass features that strengthen the three criteria: per-passage verification ticks, "show context", direct source search, source detail pages, add-source-by-URL, "sources changed since this answer → regenerate", and a printable officer briefing in the organisers' template. Nothing from v1 was removed.
+**What changed in v2:** (1) all nine pack documents are ingested and used, each with its own status; (2) the model layer is provider-neutral — the officer/admin chooses provider, model and API key per task in a settings screen (OpenAI GPT-6 / GPT-5.6 were the original plan's assumed tested defaults, not a current successful-provider claim; the latest real-key attempt returned no credits remaining); (3) second-pass features that strengthen the three criteria: per-passage verification ticks, "show context", direct source search, source detail pages, add-source-by-URL, "sources changed since this answer → regenerate", and a printable officer briefing in the organisers' template. Nothing from v1 was removed.
 
 ---
 

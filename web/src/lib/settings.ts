@@ -10,7 +10,6 @@ import { PROVIDERS, type ProviderDef } from './llm';
 import type { Effort, LlmTask, ProviderId, ProviderInfo, Settings, TaskModel } from './types';
 
 export const MUNICIPALITY_NAME: string = process.env.MUNICIPALITY_NAME ?? 'Schoten';
-export const TESTED_CONFIGURATION = 'openai/gpt-6-astra';
 
 const parsedBudget = Number.parseInt(process.env.RETRIEVAL_CHAR_BUDGET ?? '', 10);
 export const RETRIEVAL_CHAR_BUDGET: number =
@@ -272,7 +271,7 @@ export function getSettingsDto(): Settings {
     tts: { provider: tts.provider, voiceId: tts.voiceId, hasKey: tts.key !== null },
     retrieval: { mode: getRetrievalMode(), embeddingsAvailable: resolveKey('openai') !== null },
     municipality: MUNICIPALITY_NAME,
-    testedConfiguration: TESTED_CONFIGURATION,
+    testedConfiguration: getSetting('model.lastSuccessfulTest') ?? 'Nog geen geslaagde verbindingstest in deze werkruimte.',
   };
 }
 

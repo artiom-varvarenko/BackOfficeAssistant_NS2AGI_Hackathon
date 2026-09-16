@@ -11,7 +11,13 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { ApiError } from '@/lib/api';
 import { getDb, newId, nowIso, pdfPathForVersion } from '@/lib/db';
+import { embedSource } from '@/lib/embeddings';
+import { ENRICHMENT_WARNINGS } from '@/lib/enrichment-warnings';
 import { addSourceEvent } from '@/lib/events';
+import { resolveTaskModel } from '@/lib/llm';
+import { resolveKey } from '@/lib/settings';
+import { summarizeSource } from '@/lib/summary';
+import type { Locale } from '@/lib/i18n';
 import type { DocType, Level } from '@/lib/types';
 import { chunkPages, type ChunkPassage, UNREADABLE_MESSAGE } from './chunk';
 import { extractPages } from './extract';
@@ -63,7 +69,7 @@ export function findVersionBySha(sha256: string): { versionId: string; sourceId:
   return row ? { versionId: row.id, sourceId: row.source_id } : null;
 }
 
-export async function createSource(buffer: Buffer, source: SourceMeta, version: VersionMeta): Promise<IngestResult> {
+export async function createSource(buffer: Buffer, source: SourceMeta, version: VersionMeta, language: Locale = 'nl'): Promise<IngestResult> {
   const db = getDb();
   const sourceId = newId();
   const versionId = newId();
@@ -87,13 +93,14 @@ export async function createSource(buffer: Buffer, source: SourceMeta, version: 
     );
     insertVersion(versionId, sourceId, 1, buffer, version, now);
   })();
-  return finishVersion(buffer, { sourceId, versionId, fileName: version.fileName, eventType: 'created' });
+  return finishVersion(buffer, { sourceId, versionId, fileName: version.fileName, eventType: 'created', language });
 }
 
 export async function addVersion(
   buffer: Buffer,
   sourceId: string,
   version: Omit<VersionMeta, 'applicability'>,
+  language: Locale = 'nl',
 ): Promise<IngestResult> {
   const db = getDb();
   if (!db.prepare('SELECT 1 FROM sources WHERE id = ?').get(sourceId)) {
@@ -112,6 +119,7 @@ export async function addVersion(
     versionId,
     fileName: version.fileName,
     eventType: 'version_added',
+    language,
   });
 }
 
@@ -146,6 +154,7 @@ function insertVersion(
 }
 
 interface ProcessContext {
+  language: Locale;
   sourceId: string;
   versionId: string;
   fileName: string;
@@ -224,5 +233,58 @@ async function finishVersion(buffer: Buffer, ctx: ProcessContext): Promise<Inges
     logEvent(`${ctx.fileName} · ${pageCount} p. · ${passages.length} passages`);
   })();
 
-  return { sourceId: ctx.sourceId, versionId: ctx.versionId, pageCount, passageCount: passages.length, warning };
+  const derivedWarning = await deriveCurrentVersion(ctx);
+  return { sourceId: ctx.sourceId, versionId: ctx.versionId, pageCount, passageCount: passages.length, warning: derivedWarning ?? warning };
+}
+
+async function deriveCurrentVersion(ctx: ProcessContext): Promise<string | null> {
+  const db = getDb();
+  const isCurrent = () => db.prepare('SELECT 1 FROM sources WHERE id = ? AND current_version_id = ?')
+    .get(ctx.sourceId, ctx.versionId) !== undefined;
+  // An older concurrent upload may finish extraction after its replacement.
+  if (!isCurrent()) return null;
+
+  const jobs: { label: string; action: () => Promise<unknown> }[] = [
+    {
+      label: ENRICHMENT_WARNINGS.summary,
+      action: async () => {
+        try {
+          // Keyless local providers are supported too. Missing configuration
+          // simply leaves the explicit generate button available, per the plan.
+          resolveTaskModel('summary');
+        } catch (error) {
+          if (error instanceof ApiError && error.code === 'no_model_configured') return;
+          throw error;
+        }
+        await summarizeSource(ctx.sourceId, ctx.versionId, ctx.language);
+      },
+    },
+  ];
+  if (resolveKey('openai')?.key.trim()) {
+    jobs.push({
+      label: ENRICHMENT_WARNINGS.embeddings,
+      action: () => embedSource(ctx.sourceId, ctx.versionId),
+    });
+  }
+  const results = await Promise.allSettled(jobs.map((job) => job.action()));
+  const warnings = results.flatMap((result, index) => {
+    if (result.status === 'fulfilled') return [];
+    if (result.reason instanceof ApiError && result.reason.code === 'source_changed') return [];
+    // Keep provider details and credentials out of persisted ingestion notices.
+    return [jobs[index].label];
+  });
+  if (warnings.length === 0) return null;
+
+  // Derived failures do not undo readable passages or claim PDF processing
+  // failed. The existing version warning is visible in every Source DTO.
+  return db.transaction(() => {
+    if (!isCurrent()) return null;
+    const version = db.prepare<[string], { extraction_warning: string | null }>(
+      'SELECT extraction_warning FROM source_versions WHERE id = ?',
+    ).get(ctx.versionId);
+    if (!version) return null;
+    const notice = [version.extraction_warning, ...warnings].filter(Boolean).join(' ');
+    db.prepare('UPDATE source_versions SET extraction_warning = ? WHERE id = ?').run(notice, ctx.versionId);
+    return notice;
+  }).immediate();
 }

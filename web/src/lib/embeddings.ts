@@ -6,6 +6,7 @@ import { APICallError, embedMany, wrapEmbeddingModel } from 'ai';
 import type { Database, Statement } from 'better-sqlite3';
 import { ApiError } from './api';
 import { getDb } from './db';
+import { clearEnrichmentWarning } from './enrichment-warnings';
 import { safeModelErrorMessage } from './model-errors';
 import { resolveKey } from './settings';
 
@@ -193,6 +194,7 @@ export async function embedSource(sourceId: string, expectedVersionId?: string):
       throw new ApiError(409, 'source_changed', 'De huidige bronversie is ondertussen gewijzigd. Bereken de embeddings opnieuw voor de huidige versie.');
     }
     for (let i = 0; i < missing.length; i++) sql.upsert.run(missing[i].id, EMBEDDING_DIMS, vectors[i]);
+    clearEnrichmentWarning(snapshot.versionId, 'embeddings', db);
   }).immediate();
   return snapshot.passages.length;
 }

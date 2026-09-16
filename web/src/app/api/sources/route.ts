@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { handle } from '@/lib/api';
 import { getSource, listSources } from '@/lib/dto';
 import { createSource } from '@/lib/ingest';
+import { requestLocale } from '@/lib/request-locale';
 import {
   parseInitialApplicability,
   parseSourceFields,
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
       fileName: upload.fileName,
       applicability,
       ...version,
-    });
+    }, requestLocale(req));
     return Response.json(getSource(sourceId), { status: 201 });
   });
 }

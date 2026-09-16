@@ -8,6 +8,7 @@ import { ApiError } from './api';
 import { getDb, newId, nowIso } from './db';
 import { getAnswer } from './dto';
 import { addAnswerEvent } from './events';
+import { translate, type Locale } from './i18n';
 import {
   ANSWER_MAX_OUTPUT_TOKENS,
   generateStructured,
@@ -423,6 +424,7 @@ function validate(
 
 export interface GenerateAnswerInput {
   question: string;
+  language?: Locale;
   sourceIds?: string[] | null;
   regeneratedFromId?: string | null;
 }
@@ -430,7 +432,10 @@ export interface GenerateAnswerInput {
 // Shared JSON-body shape validation for both answer endpoints. Content and
 // database-backed scope checks live in prepareAnswer, also used by regenerate.
 export function parseAnswerInput(body: unknown): GenerateAnswerInput {
-  const { question, sourceIds } = jsonObject(body);
+  const { question, sourceIds, language } = jsonObject(body);
+  if (language !== undefined && language !== 'nl' && language !== 'en') {
+    throw new ApiError(400, 'invalid_language', 'Kies Nederlands of Engels als taal.');
+  }
   if (
     sourceIds !== undefined &&
     sourceIds !== null &&
@@ -440,6 +445,7 @@ export function parseAnswerInput(body: unknown): GenerateAnswerInput {
   }
   return {
     question: typeof question === 'string' ? question : '',
+    language: language as Locale | undefined,
     sourceIds: sourceIds as string[] | null | undefined,
   };
 }
@@ -461,6 +467,7 @@ function checkScope(sourceIds: string[] | null | undefined): string[] | null {
 
 interface PreparedAnswer {
   question: string;
+  language: Locale;
   scope: string[] | null;
   regeneratedFromId: string | null;
   passages: RetrievedPassage[];
@@ -506,10 +513,14 @@ export async function prepareAnswer(
     );
   }
   const meta = loadVersionMeta(passages.map((p) => p.versionId));
-  const { system, prompt, labels } = buildPrompt(question, passages, meta);
+  const { system: originalSystem, prompt, labels } = buildPrompt(question, passages, meta);
+  const language = input.language === 'en' ? 'en' : 'nl';
+  const system = language === 'en'
+    ? originalSystem.replace('Schrijf helder, zakelijk Nederlands', 'Write clear, professional English') + '\nOutput language: English. Write antwoord, ontbrekende_informatie, waarschuwingen and tegenstrijdigheden in English. Keep the JSON field names and enum values exactly as specified. Copy letterlijk_fragment verbatim in the source language; never translate quoted evidence. Source titles and article numbers remain unchanged.'
+    : originalSystem;
   const resolved = resolveTaskModel('answer');
   return {
-    question, scope, regeneratedFromId, passages, meta, labels, resolved, abortSignal,
+    question, language, scope, regeneratedFromId, passages, meta, labels, resolved, abortSignal,
     modelArgs: { system, prompt, schema: AnswerOut, maxOutputTokens: ANSWER_MAX_OUTPUT_TOKENS, abortSignal },
   };
 }
@@ -548,6 +559,12 @@ function completeAnswer(context: PreparedAnswer, result: StructuredResult<Answer
   context.abortSignal?.throwIfAborted();
   const { question, scope, regeneratedFromId, passages, meta, labels } = context;
   const validated = validate(result.output, passages, labels, meta);
+  // A schema-valid object can still contain no answer. Check after marker
+  // validation too: invalid citations may have been the only returned text.
+  // Neither transport may record an empty answer as a successful generation.
+  if (validated.text.replace(MARKER_RE, '').trim().length === 0) {
+    throw new ApiError(502, 'model_failed', 'Het model gaf geen antwoordtekst terug. Probeer het opnieuw.');
+  }
 
   const s = stmts();
   const id = newId();
@@ -561,7 +578,7 @@ function completeAnswer(context: PreparedAnswer, result: StructuredResult<Answer
       can_answer: validated.canAnswer,
       generated_answer: validated.text,
       gaps_json: JSON.stringify(result.output.ontbrekende_informatie),
-      warnings_json: JSON.stringify(validated.warnings),
+      warnings_json: JSON.stringify(validated.warnings.map((warning) => translate(warning, context.language))),
       conflicts_json: JSON.stringify(result.output.tegenstrijdigheden),
       uncited_sentences: validated.uncitedSentences,
       provider: result.provider,

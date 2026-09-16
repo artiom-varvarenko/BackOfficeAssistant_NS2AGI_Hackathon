@@ -1,4 +1,5 @@
 'use client';
+import { useLocale } from './LanguageProvider';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -13,6 +14,7 @@ import { ReviewCard, type ReviewCardHandle } from './ReviewCard';
 import { UncertaintyCard } from './UncertaintyCard';
 
 export function AnswerWorkspace({ initialAnswer, history = false }: { initialAnswer: Answer; history?: boolean }) {
+  const { t, locale } = useLocale();
   const router = useRouter();
   const [answer, setAnswer] = useState(initialAnswer);
   const [activeMarker, setActiveMarker] = useState<number | null>(null);
@@ -40,7 +42,7 @@ export function AnswerWorkspace({ initialAnswer, history = false }: { initialAns
   }, [answer.regeneratedFromId]);
 
   function report(reason: unknown) {
-    setError(reason instanceof Error ? reason.message : 'Wijzigingen konden niet worden opgeslagen.');
+    setError(reason instanceof Error ? reason.message : t("Wijzigingen konden niet worden opgeslagen."));
     setNeedsSettings(reason instanceof ApiClientError && reason.code === 'no_model_configured');
   }
 
@@ -116,10 +118,10 @@ export function AnswerWorkspace({ initialAnswer, history = false }: { initialAns
   const busy = pending > 0 || action !== null;
   const sourcesChanged = answer.sourcesChangedSince || answer.citations.some((citation) => !citation.sourceEnabled || !citation.isCurrentVersion);
   return <>
-    {answer.regeneratedFromId && <p><Link href={`/geschiedenis/${encodeURIComponent(answer.regeneratedFromId)}`}>{previousDate ? `Nieuwe versie van vraag van ${dateLabel(previousDate)}` : 'Nieuwe versie van een eerdere vraag'} →</Link></p>}
-    {sourcesChanged && <section className="notice notice-amber"><p>Sinds dit antwoord zijn bronnen gewijzigd (vervangen of uitgeschakeld). Het bewijs hieronder is de versie die toen gebruikt werd.</p><button type="button" disabled={busy} onClick={() => void regenerate()}>{action === 'regenerate' ? 'Nieuw antwoord opstellen…' : 'Opnieuw genereren met huidige bronnen'}</button></section>}
-    {answer.scopeSourceIds !== null && <p><Badge>Beperkt tot {answer.scopeSourceIds.length} {answer.scopeSourceIds.length === 1 ? 'bron' : 'bronnen'}</Badge></p>}
-    {error && <p role="alert" className="notice notice-red">{error}{needsSettings && <> <Link href="/instellingen">Ga naar Instellingen</Link></>}</p>}
+    {answer.regeneratedFromId && <p><Link href={`/geschiedenis/${encodeURIComponent(answer.regeneratedFromId)}`}>{previousDate ? t('Nieuwe versie van vraag van {date}', { date: dateLabel(previousDate, locale) }) : t("Nieuwe versie van een eerdere vraag")} →</Link></p>}
+    {sourcesChanged && <section className="notice notice-amber"><p>{t("Sinds dit antwoord zijn bronnen gewijzigd (vervangen of uitgeschakeld). Het bewijs hieronder is de versie die toen gebruikt werd.")}</p><button type="button" disabled={busy} onClick={() => void regenerate()}>{action === 'regenerate' ? t("Nieuw antwoord opstellen…") : t("Opnieuw genereren met huidige bronnen")}</button></section>}
+    {answer.scopeSourceIds !== null && <p><Badge>{t(answer.scopeSourceIds.length === 1 ? 'Beperkt tot {n} bron' : 'Beperkt tot {n} bronnen', { n: answer.scopeSourceIds.length })}</Badge></p>}
+    {error && <p role="alert" className="notice notice-red">{error}{needsSettings && <> <Link href="/instellingen">{t("Ga naar Instellingen")}</Link></>}</p>}
     <div className="answer-grid"><div className="answer-column">
       {history ? <HistoryAnswerBlocks answer={answer} activeMarker={activeMarker} onSelect={selectChip} /> : <AnswerView answer={answer} activeMarker={activeMarker} onSelect={selectChip} />}
       <UncertaintyCard answer={answer} />

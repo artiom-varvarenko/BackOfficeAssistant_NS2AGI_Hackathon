@@ -1,16 +1,17 @@
-// Retrieval (PLAN.md section 8.4). No model involved: BM25 over passages_fts,
+// Retrieval (PLAN.md section 8.4). BM25 over passages_fts,
 // bounded in SQL to the corpus that may be cited (source enabled, version
 // ready and current, optional scope), filled in rank order until the character
 // budget, then re-sorted by (source, ordinal) so the model reads every document
 // in its natural order. The same boundary and query serve GET /api/search.
 //
-// Seams for a later hybrid mode: `rankedCandidates` produces the ordered
-// candidate list and `fillBudget` turns any ordered list into the selection, so
-// an embedding ranker only has to merge its own candidates in before filling.
+// Answer retrieval optionally combines BM25 and embedding ranks. Direct
+// source search remains deterministic BM25 and never contacts a provider.
 import { randomUUID } from 'node:crypto';
 import type { Database, Statement } from 'better-sqlite3';
+import { ApiError } from './api';
 import { getDb } from './db';
-import { RETRIEVAL_CHAR_BUDGET } from './settings';
+import { decodeEmbedding, embedQuery } from './embeddings';
+import { getRetrievalMode, RETRIEVAL_CHAR_BUDGET } from './settings';
 import type { Passage, SearchHit } from './types';
 
 export interface RetrievedPassage {
@@ -31,6 +32,7 @@ export interface RetrievalOptions {
   sourceIds?: string[] | null; // non-empty array = restrict to these sources
   charBudget?: number; // default RETRIEVAL_CHAR_BUDGET
   maxPassages?: number; // default MAX_PASSAGES
+  signal?: AbortSignal;
 }
 
 export const MAX_PASSAGES = 40;
@@ -175,6 +177,11 @@ interface SearchRow extends PassageRow {
   snippet: string;
 }
 
+interface EmbeddedRow extends PassageRow {
+  dims: number | null;
+  vector: Buffer | null;
+}
+
 const PASSAGE_COLUMNS = `
   p.id, p.version_id, v.source_id, s.title AS source_title,
   p.ordinal, p.page_start, p.page_end, p.article, p.section, p.text`;
@@ -189,6 +196,7 @@ const CORPUS_WHERE = `
   AND (@scope IS NULL OR s.id IN (SELECT value FROM json_each(@scope)))`;
 
 interface Statements {
+  db: Database;
   exists: Statement<[string], { hit: number }>;
   ranked: Statement<[{ query: string; scope: string | null; limit: number }], PassageRow>;
   search: Statement<
@@ -196,10 +204,12 @@ interface Statements {
     SearchRow
   >;
   fallback: Statement<[{ scope: string | null; limit: number }], PassageRow>;
+  embedded: Statement<[{ scope: string | null }], EmbeddedRow>;
 }
 
 function prepare(db: Database): Statements {
   return {
+    db,
     // Vocabulary probe for one quoted prefix term; a row when the corpus has it.
     exists: db.prepare('SELECT 1 AS hit FROM passages_fts WHERE passages_fts MATCH ? LIMIT 1'),
     // bm25() is negative-is-better, so ascending order is best first.
@@ -208,28 +218,35 @@ function prepare(db: Database): Statements {
       FROM passages_fts f
       JOIN passages p ON p.id = f.passage_id ${CORPUS_JOIN}
       WHERE passages_fts MATCH @query AND ${CORPUS_WHERE}
-      ORDER BY score LIMIT @limit`),
+      ORDER BY score, p.id LIMIT @limit`),
     search: db.prepare(`
       SELECT ${PASSAGE_COLUMNS}, bm25(passages_fts) AS score,
              snippet(passages_fts, 0, @startMark, @endMark, '…', 24) AS snippet
       FROM passages_fts f
       JOIN passages p ON p.id = f.passage_id ${CORPUS_JOIN}
       WHERE passages_fts MATCH @query AND ${CORPUS_WHERE}
-      ORDER BY score LIMIT @limit`),
+      ORDER BY score, p.id LIMIT @limit`),
     // Round-robin over the sources by ordinal: the opening passages of every
     // document, for questions whose words occur nowhere in the corpus.
     fallback: db.prepare(`
       SELECT ${PASSAGE_COLUMNS}, 0 AS score
       FROM passages p ${CORPUS_JOIN}
       WHERE ${CORPUS_WHERE}
-      ORDER BY p.ordinal, s.title, s.id LIMIT @limit`),
+      ORDER BY p.ordinal, s.title, s.id, p.id LIMIT @limit`),
+    embedded: db.prepare(`
+      SELECT ${PASSAGE_COLUMNS}, 0 AS score, e.dims, e.vector
+      FROM passages p ${CORPUS_JOIN}
+      LEFT JOIN passage_embeddings e ON e.passage_id = p.id
+      WHERE ${CORPUS_WHERE} ORDER BY p.id`),
   };
 }
 
 let prepared: Statements | undefined;
 
 function stmts(): Statements {
-  return (prepared ??= prepare(getDb()));
+  const db = getDb();
+  if (prepared?.db !== db) prepared = prepare(db);
+  return prepared;
 }
 
 // Binding for @scope: an empty or missing list means "the whole corpus".
@@ -272,10 +289,10 @@ function mapPassage(r: PassageRow): Passage {
 
 // ---- Selection ----------------------------------------------------------------
 
-function rankedCandidates(question: string, scope: string | null): PassageRow[] {
+function rankedCandidates(question: string, scope: string | null, limit = CANDIDATE_LIMIT): PassageRow[] {
   const query = buildFtsQuery(expandTerms(tokenizeQuery(question)));
   if (query === null) return [];
-  return stmts().ranked.all({ query, scope, limit: CANDIDATE_LIMIT });
+  return stmts().ranked.all({ query, scope, limit });
 }
 
 // Takes candidates in the given order until the character budget or the
@@ -314,6 +331,63 @@ export function retrievePassages(
     candidates.length > 0 ? candidates : stmts().fallback.all({ scope, limit: maxPassages });
   const selected = fillBudget(rows, charBudget, maxPassages).sort(byDocumentOrder);
   return { passages: selected.map(mapRetrieved), ftsHits: candidates.length };
+}
+
+function embeddingRows(scope: string | null): { row: PassageRow; vector: number[] }[] {
+  return stmts().embedded.all({ scope }).map((row) => {
+    const vector = row.vector === null || row.dims === null ? null : decodeEmbedding(row.vector, row.dims);
+    if (vector === null) {
+      throw new ApiError(409, 'embeddings_missing', 'Niet alle geselecteerde bronnen zijn voorbereid op hybride zoeken. Bereken de embeddings onder Instellingen of kies Alleen tekstzoeken.');
+    }
+    return { row, vector };
+  });
+}
+
+function cosine(left: number[], right: number[]): number {
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let index = 0; index < left.length; index++) {
+    dot += left[index] * right[index];
+    leftNorm += left[index] * left[index];
+    rightNorm += right[index] * right[index];
+  }
+  return dot / Math.sqrt(leftNorm * rightNorm);
+}
+
+export async function retrieveForAnswer(
+  question: string,
+  opts: RetrievalOptions = {},
+): Promise<{ passages: RetrievedPassage[]; ftsHits: number }> {
+  opts.signal?.throwIfAborted();
+  if (getRetrievalMode() === 'bm25') return retrievePassages(question, opts);
+  const scope = scopeParam(opts.sourceIds);
+  // Do not spend a query embedding on an empty or unprepared corpus. Partial
+  // coverage must never silently make enabled documents harder to retrieve.
+  if (embeddingRows(scope).length === 0) return { passages: [], ftsHits: 0 };
+  const queryVector = await embedQuery(question, opts.signal);
+  // Query both rankings after the provider await in the same read snapshot:
+  // a source disabled or replaced while embedding the question stays excluded.
+  return getDb().transaction(() => {
+    const semantic = embeddingRows(scope)
+      .map(({ row, vector }) => ({ ...row, score: cosine(queryVector, vector) }))
+      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+      .slice(0, 40);
+    const lexical = rankedCandidates(question, scope, 40);
+    const fused = new Map<string, PassageRow>();
+    for (const ranking of [lexical, semantic]) {
+      ranking.forEach((row, index) => {
+        const contribution = 1 / (60 + index + 1);
+        const existing = fused.get(row.id);
+        if (existing) existing.score += contribution;
+        else fused.set(row.id, { ...row, score: contribution });
+      });
+    }
+    const candidates = Array.from(fused.values()).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    const selected = fillBudget(candidates, opts.charBudget ?? RETRIEVAL_CHAR_BUDGET, opts.maxPassages ?? MAX_PASSAGES)
+      .sort(byDocumentOrder);
+    return { passages: selected.map(mapRetrieved), ftsHits: lexical.length };
+  })();
 }
 
 const SNIPPET_ESCAPES: Record<string, string> = {

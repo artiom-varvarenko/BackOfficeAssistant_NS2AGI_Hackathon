@@ -16,6 +16,7 @@ import {
   NoObjectGeneratedError,
   Output,
   RetryError,
+  streamText,
   type JSONValue,
   type LanguageModel,
   type LanguageModelCallOptions,
@@ -220,7 +221,7 @@ interface CallArgs extends LanguageModelCallOptions, RequestOptions {
 // Reuse this single argument object across attempts, including streaming: its
 // signal is the total deadline and SDK retries are off. The caller owns at most
 // one retry across transport and JSON failures, not one of each.
-export function callArgs(resolved: ResolvedTaskModel, system: string, prompt: string, maxOutputTokens: number): CallArgs {
+export function callArgs(resolved: ResolvedTaskModel, system: string, prompt: string, maxOutputTokens: number, signal?: AbortSignal): CallArgs {
   const { def, taskModel, model } = resolved;
   const openaiFamily = def.id === 'openai' || def.id === 'azure';
   return {
@@ -229,7 +230,9 @@ export function callArgs(resolved: ResolvedTaskModel, system: string, prompt: st
     prompt,
     maxOutputTokens,
     maxRetries: 0,
-    abortSignal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+    abortSignal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(MODEL_TIMEOUT_MS)])
+      : AbortSignal.timeout(MODEL_TIMEOUT_MS),
     reasoning: def.supportsEffort && taskModel.effort !== null ? taskModel.effort : undefined,
     providerOptions: openaiFamily ? { openai: { textVerbosity: 'low', store: false } } : undefined,
   };
@@ -265,30 +268,55 @@ function meta(resolved: ResolvedTaskModel, usage: unknown, startedAt: number): L
 // on JSON mode; a retryable transport failure can spend it on the same request.
 // The second attempt never gets another transport or JSON retry. Compatible
 // servers already use JSON mode for Output.object plus local schema validation.
-export async function generateStructured<T>(
-  task: LlmTask,
-  args: { system: string; prompt: string; schema: z.ZodType<T>; maxOutputTokens?: number },
-): Promise<{ output: T; raw: string } & LlmCallMeta> {
+interface StructuredArgs<T> {
+  system: string;
+  prompt: string;
+  schema: z.ZodType<T>;
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
+}
+
+export type StructuredResult<T> = { output: T; raw: string } & LlmCallMeta;
+
+// Resolve configuration before opening an HTTP stream. Both modes share the
+// captured model/key, deadline and retry policy, and only return validated data.
+export function prepareStructured<T>(task: LlmTask, args: StructuredArgs<T>) {
   const resolved = resolveTaskModel(task);
-  const base = callArgs(resolved, args.system, args.prompt, args.maxOutputTokens ?? ANSWER_MAX_OUTPUT_TOKENS);
+  const base = callArgs(resolved, args.system, args.prompt, args.maxOutputTokens ?? ANSWER_MAX_OUTPUT_TOKENS, args.signal);
   const startedAt = performance.now();
-  try {
+
+  async function attempt(jsonMode: boolean, onPartial?: (partial: unknown) => void): Promise<StructuredResult<T>> {
     base.abortSignal.throwIfAborted();
-    try {
-      const result = await generateText({ ...base, output: Output.object({ schema: args.schema }) });
-      base.abortSignal.throwIfAborted();
-      return { output: result.output, raw: result.text, ...meta(resolved, result.usage, startedAt) };
-    } catch (err) {
-      base.abortSignal.throwIfAborted();
-      if (APICallError.isInstance(err) && err.isRetryable) {
-        await delay(2000, undefined, { signal: base.abortSignal });
-        const result = await generateText({ ...base, output: Output.object({ schema: args.schema }) });
+    const output = jsonMode ? Output.json() : Output.object({ schema: args.schema });
+    let result: { output: unknown; raw: string; usage: unknown };
+    if (onPartial) {
+      let streamError: unknown;
+      let failed = false;
+      const streamed = streamText({
+        ...base,
+        output,
+        // The SDK default logs the entire error, including provider headers
+        // and bodies. Capture it privately and sanitize at our boundary.
+        onError({ error }) { failed = true; streamError = error; },
+      });
+      try {
+        for await (const partial of streamed.partialOutputStream) {
+          base.abortSignal.throwIfAborted();
+          onPartial(partial);
+        }
         base.abortSignal.throwIfAborted();
-        return { output: result.output, raw: result.text, ...meta(resolved, result.usage, startedAt) };
+        if (failed) throw streamError;
+        const [complete, raw, usage] = await Promise.all([streamed.output, streamed.text, streamed.usage]);
+        result = { output: complete, raw, usage };
+      } catch (error) {
+        // partialOutputStream filters error events. Prefer the original error
+        // over a generic "no output" error so transport retryability survives.
+        throw failed ? streamError : error;
       }
-      if (!NoObjectGeneratedError.isInstance(err)) throw err;
+    } else {
+      const generated = await generateText({ ...base, output });
+      result = { output: generated.output, raw: generated.text, usage: generated.usage };
     }
-    const result = await generateText({ ...base, output: Output.json() });
     base.abortSignal.throwIfAborted();
     const parsed = args.schema.safeParse(result.output);
     if (!parsed.success) {
@@ -296,10 +324,39 @@ export async function generateStructured<T>(
         `Aanroep van ${resolved.def.label} · ${resolved.taskModel.model} mislukt: het antwoord voldeed ook na een tweede poging niet aan het verwachte formaat.`,
       );
     }
-    return { output: parsed.data, raw: result.text, ...meta(resolved, result.usage, startedAt) };
-  } catch (err) {
-    throw toModelFailed(resolved, err);
+    return { output: parsed.data, raw: result.raw, ...meta(resolved, result.usage, startedAt) };
   }
+
+  async function run(onPartial?: (partial: unknown) => void): Promise<StructuredResult<T>> {
+    try {
+      let jsonMode = false;
+      try {
+        return await attempt(false, onPartial);
+      } catch (err) {
+        base.abortSignal.throwIfAborted();
+        const root = RetryError.isInstance(err) ? err.lastError : err;
+        if (NoObjectGeneratedError.isInstance(root)) {
+          jsonMode = true;
+        } else if (APICallError.isInstance(root) && root.isRetryable) {
+          await delay(2000, undefined, { signal: base.abortSignal });
+        } else {
+          throw root;
+        }
+      }
+      // Reset provisional text when replacing a failed attempt. The client
+      // replaces partial snapshots; it must never concatenate two attempts.
+      onPartial?.(undefined);
+      return await attempt(jsonMode, onPartial);
+    } catch (err) {
+      throw toModelFailed(resolved, err);
+    }
+  }
+
+  return { generate: () => run(), stream: (onPartial: (partial: unknown) => void) => run(onPartial) };
+}
+
+export async function generateStructured<T>(task: LlmTask, args: StructuredArgs<T>): Promise<StructuredResult<T>> {
+  return prepareStructured(task, args).generate();
 }
 
 export async function generateTextPlain(

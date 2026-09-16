@@ -10,7 +10,7 @@ import { Badge } from './Badge';
 import { SearchPanel } from './SearchPanel';
 import { useReviewNavigation } from './ReviewNavigation';
 
-export function QuestionPage() {
+export function QuestionPage({ streamingEnabled = true }: { streamingEnabled?: boolean }) {
   const reviewNavigation = useReviewNavigation();
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -55,6 +55,11 @@ export function QuestionPage() {
       await reviewNavigation.flush();
       if (abort.signal.aborted) return;
       setBusy(true); setAnswer(null); setPartial('');
+      if (!streamingEnabled) {
+        const result = await askQuestion(asked, sourceIds, abort.signal);
+        if (!abort.signal.aborted) setAnswer(result);
+        return;
+      }
       try {
         await streamAnswer(asked, {
           partial: (text) => { if (!abort.signal.aborted) setPartial(text); },

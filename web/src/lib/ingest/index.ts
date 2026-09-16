@@ -11,7 +11,11 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { ApiError } from '@/lib/api';
 import { getDb, newId, nowIso, pdfPathForVersion } from '@/lib/db';
+import { embedSource } from '@/lib/embeddings';
 import { addSourceEvent } from '@/lib/events';
+import { resolveTaskModel } from '@/lib/llm';
+import { resolveKey } from '@/lib/settings';
+import { summarizeSource } from '@/lib/summary';
 import type { DocType, Level } from '@/lib/types';
 import { chunkPages, type ChunkPassage, UNREADABLE_MESSAGE } from './chunk';
 import { extractPages } from './extract';
@@ -224,5 +228,58 @@ async function finishVersion(buffer: Buffer, ctx: ProcessContext): Promise<Inges
     logEvent(`${ctx.fileName} · ${pageCount} p. · ${passages.length} passages`);
   })();
 
-  return { sourceId: ctx.sourceId, versionId: ctx.versionId, pageCount, passageCount: passages.length, warning };
+  const derivedWarning = await deriveCurrentVersion(ctx);
+  return { sourceId: ctx.sourceId, versionId: ctx.versionId, pageCount, passageCount: passages.length, warning: derivedWarning ?? warning };
+}
+
+async function deriveCurrentVersion(ctx: ProcessContext): Promise<string | null> {
+  const db = getDb();
+  const isCurrent = () => db.prepare('SELECT 1 FROM sources WHERE id = ? AND current_version_id = ?')
+    .get(ctx.sourceId, ctx.versionId) !== undefined;
+  // An older concurrent upload may finish extraction after its replacement.
+  if (!isCurrent()) return null;
+
+  const jobs: { label: string; action: () => Promise<unknown> }[] = [
+    {
+      label: 'De automatische samenvatting is niet gelukt. Controleer Instellingen en gebruik Samenvatting genereren op de bronpagina.',
+      action: async () => {
+        try {
+          // Keyless local providers are supported too. Missing configuration
+          // simply leaves the explicit generate button available, per the plan.
+          resolveTaskModel('summary');
+        } catch (error) {
+          if (error instanceof ApiError && error.code === 'no_model_configured') return;
+          throw error;
+        }
+        await summarizeSource(ctx.sourceId, ctx.versionId);
+      },
+    },
+  ];
+  if (resolveKey('openai')?.key.trim()) {
+    jobs.push({
+      label: 'De automatische embeddings zijn niet gelukt. Controleer Instellingen en gebruik Embeddings berekenen op de bronpagina.',
+      action: () => embedSource(ctx.sourceId, ctx.versionId),
+    });
+  }
+  const results = await Promise.allSettled(jobs.map((job) => job.action()));
+  const warnings = results.flatMap((result, index) => {
+    if (result.status === 'fulfilled') return [];
+    if (result.reason instanceof ApiError && result.reason.code === 'source_changed') return [];
+    // Keep provider details and credentials out of persisted ingestion notices.
+    return [jobs[index].label];
+  });
+  if (warnings.length === 0) return null;
+
+  // Derived failures do not undo readable passages or claim PDF processing
+  // failed. The existing version warning is visible in every Source DTO.
+  return db.transaction(() => {
+    if (!isCurrent()) return null;
+    const version = db.prepare<[string], { extraction_warning: string | null }>(
+      'SELECT extraction_warning FROM source_versions WHERE id = ?',
+    ).get(ctx.versionId);
+    if (!version) return null;
+    const notice = [version.extraction_warning, ...warnings].filter(Boolean).join(' ');
+    db.prepare('UPDATE source_versions SET extraction_warning = ? WHERE id = ?').run(notice, ctx.versionId);
+    return notice;
+  }).immediate();
 }

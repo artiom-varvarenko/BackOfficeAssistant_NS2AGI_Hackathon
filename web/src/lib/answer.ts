@@ -8,16 +8,16 @@ import { ApiError } from './api';
 import { getDb, newId, nowIso } from './db';
 import { getAnswer } from './dto';
 import { addAnswerEvent } from './events';
-import { ANSWER_MAX_OUTPUT_TOKENS, generateStructured } from './llm';
-import { retrievePassages, type RetrievedPassage } from './retrieve';
+import { ANSWER_MAX_OUTPUT_TOKENS, ModelFailedError, prepareStructured, type StructuredResult } from './llm';
+import { retrieveForAnswer, type RetrievedPassage } from './retrieve';
 import { MUNICIPALITY_NAME } from './settings';
 import type { Answer, Applicability, CanAnswer, DocType, Level } from './types';
 
 export const AnswerOut = z.object({
   kan_beantwoorden: z.enum(['ja', 'gedeeltelijk', 'nee']),
-  antwoord: z.string(),
+  antwoord: z.string().trim().min(1),
   citaten: z.array(
-    z.object({ nummer: z.number().int(), passage: z.string(), letterlijk_fragment: z.string() }),
+    z.object({ nummer: z.number().int().positive(), passage: z.string(), letterlijk_fragment: z.string() }),
   ),
   ontbrekende_informatie: z.array(z.string()),
   waarschuwingen: z.array(z.string()),
@@ -177,8 +177,8 @@ function passageBlock(label: string, p: RetrievedPassage, v: VersionMeta): strin
 export function buildPrompt(
   question: string,
   passages: RetrievedPassage[],
+  meta = loadVersionMeta(passages.map((p) => p.versionId)),
 ): { system: string; prompt: string; labels: { label: string; passageId: string }[] } {
-  const meta = loadVersionMeta(passages.map((p) => p.versionId));
   const labels: { label: string; passageId: string }[] = [];
   const blocks: string[] = [];
   passages.forEach((p, i) => {
@@ -408,7 +408,21 @@ function checkScope(sourceIds: string[] | null | undefined): string[] | null {
   return ids;
 }
 
-export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer> {
+interface AnswerSnapshot {
+  question: string;
+  scope: string[] | null;
+  regeneratedFromId: string | null;
+  passages: RetrievedPassage[];
+  meta: Map<string, VersionMeta>;
+  system: string;
+  prompt: string;
+  labels: { label: string; passageId: string }[];
+}
+
+// Preparation finishes before a streaming response starts, so invalid inputs,
+// missing sources and missing provider configuration retain normal HTTP errors.
+export async function prepareAnswer(input: GenerateAnswerInput, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const question = input.question.trim();
   if (question.length === 0) {
     throw new ApiError(400, 'invalid_question', 'Geef een vraag van de ondernemer op.');
@@ -426,7 +440,8 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer
     throw new ApiError(404, 'not_found', 'Antwoord niet gevonden.');
   }
 
-  const { passages } = retrievePassages(question, { sourceIds: scope });
+  const { passages } = await retrieveForAnswer(question, { sourceIds: scope, signal });
+  signal?.throwIfAborted();
   if (passages.length === 0) {
     throw new ApiError(
       409,
@@ -434,17 +449,47 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer
       'Geen ingeschakelde en verwerkte bronnen beschikbaar om de vraag mee te beantwoorden.',
     );
   }
-  const { system, prompt, labels } = buildPrompt(question, passages);
-
-  const result = await generateStructured('answer', {
-    system,
-    prompt,
+  // Prompt metadata and deterministic warnings use the same point-in-time
+  // values. Live citation DTOs separately show later replacement/disable edits.
+  const snapshot: AnswerSnapshot = stmts().db.transaction(() => {
+    const meta = loadVersionMeta(passages.map((p) => p.versionId));
+    return { question, scope, regeneratedFromId, passages, meta, ...buildPrompt(question, passages, meta) };
+  })();
+  const generation = prepareStructured('answer', {
+    system: snapshot.system,
+    prompt: snapshot.prompt,
     schema: AnswerOut,
     maxOutputTokens: ANSWER_MAX_OUTPUT_TOKENS,
+    signal,
   });
 
-  const meta = loadVersionMeta(passages.map((p) => p.versionId));
+  return {
+    generate: async () => persistAnswer(snapshot, await generation.generate(), signal),
+    stream: async (onPartial: (text: string) => void) => {
+      const result = await generation.stream((partial) => {
+        if (partial === undefined) onPartial('');
+        else if (partial !== null && typeof partial === 'object' && 'antwoord' in partial && typeof partial.antwoord === 'string') {
+          onPartial(partial.antwoord);
+        }
+      });
+      return persistAnswer(snapshot, result, signal);
+    },
+  };
+}
+
+export async function generateAnswer(input: GenerateAnswerInput, signal?: AbortSignal): Promise<Answer> {
+  return (await prepareAnswer(input, signal)).generate();
+}
+
+// Both transport modes commit through this one synchronous transaction. No
+// provisional output is saved, and a cancelled generation cannot add a row.
+function persistAnswer(snapshot: AnswerSnapshot, result: StructuredResult<AnswerOutput>, signal?: AbortSignal): Answer {
+  signal?.throwIfAborted();
+  const { question, scope, regeneratedFromId, passages, meta, system, prompt, labels } = snapshot;
   const validated = validate(result.output, passages, labels, meta);
+  if (validated.text.trim() === '') {
+    throw new ModelFailedError('Het model gaf geen bruikbaar antwoord terug. Probeer het opnieuw.');
+  }
 
   const s = stmts();
   const id = newId();
@@ -452,6 +497,7 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer
   const sourcesUsed = new Set(passages.map((p) => p.sourceId)).size;
   const seconds = (result.latencyMs / 1000).toFixed(1).replace('.', ',');
   s.db.transaction(() => {
+    signal?.throwIfAborted();
     s.insertAnswer.run({
       id,
       question,

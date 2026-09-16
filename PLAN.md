@@ -18,27 +18,21 @@ Everything here was derived from the nine PDFs in `data/` ("the pack"), the live
 2. Officer-controlled workflow — inspect, correct, decide; human approval; no automatic sending.
 3. Maintainable, traceable knowledge — officers update sources without help; answer+source history traceable; reusable approach.
 
-**Team split:** Part 1 (you) = data, ingestion, retrieval, generation, model layer, all API routes. Part 2 (teammate) = UI, review workflow, history, settings screen, video. Interface = `web/src/lib/types.ts` (section 6) + the API contract (section 7). Frozen at T+0:15; changes are announced in chat, never silent.
+**Team split:** Part 1 (you) = data, ingestion, retrieval, generation, model layer, all API routes. Part 2 (teammate) = UI, review workflow, history, settings screen, video. Interface = `web/src/lib/types.ts` (section 6) + the API contract (section 7). Frozen once Sprint 0 is pushed; changes are announced in chat, never silent.
 
-**Clock (T+0 = 12:00):**
+**Order of work (no clock, no freeze, nothing optional).** Every tier in section 12 is built today. Work runs in sprints separated by two joint checkpoints; each of you runs up to three agent tracks in parallel per sprint and acts as integrator/verifier (this harness spawns subagents; Codex runs parallel tasks). The order exists only to put the jury criteria first; building continues until the submission is uploaded.
 
-| Clock | T | What |
-|---|---|---|
-| 12:00–12:15 | 0:00–0:15 | Bootstrap (P1) · API keys + fixtures (P2) |
-| 12:15–13:00 | 0:15–1:00 | Sprint 1 — DB, ingestion, seed of all nine, read endpoints (P1) · shell + Nieuwe vraag + evidence panel on fixtures (P2) |
-| **13:00** | **1:00** | **Checkpoint 1**: Bronnen/Geschiedenis lists render real seeded data (nine sources, correct badges) |
-| 13:00–13:50 | 1:00–1:50 | Sprint 2 — model layer + retrieval + generation + `POST /api/answers` (P1) · Bronnen page, review card, Geschiedenis list (P2) |
-| **13:50–14:05** | **1:50–2:05** | **Checkpoint 2 = first end-to-end milestone** (section 11) — fix together |
-| 14:05–14:45 | 2:05–2:45 | Sprint 3 — write endpoints, citation checks, settings API (P1) · history detail, review persistence, Instellingen page (P2) |
-| 14:45–15:20 | 2:45–3:20 | Sprint 4 — e-mail draft, search, context, from-URL, regenerate, similar (P1) · briefing view, context expander, search panel, source detail, polish, video prep (P2) |
-| **15:20** | **3:20** | **Code freeze.** 15:20–15:40 acceptance checklist (section 13); hotfixes only |
-| 15:40–16:00 | | Record the 3-minute video (section 14) |
-| 16:00–16:15 | | Trim, upload to YouTube (Unlisted or Public), open the link in a private window |
-| **16:15** | | Submit the Google Form. 15 minutes buffer. |
+| Sprint | Part 1 (you) — tracks | Part 2 (teammate) — tracks | Ends when |
+|---|---|---|---|
+| 0 — start | bootstrap, `types.ts`, push | keys into `.env.local`, fixtures, api-client | Part 2 has pulled the scaffold |
+| 1 | A: DB + ingestion + seed of all nine · B: model layer (`llm.ts`) · C: `dto.ts` + read endpoints | A: shell + Nieuwe vraag + AnswerView · B: EvidencePanel + UncertaintyCard · C: ReviewCard | **Checkpoint 1:** Bronnen/Geschiedenis lists render the nine seeded sources with correct badges |
+| 2 | A: retrieval + generation + `POST /api/answers` · B: write endpoints + settings API · C: (starts tier-2 endpoints when A/B are done) | A: Bronnen page + forms · B: Geschiedenis list + detail · C: Instellingen page | **Checkpoint 2 = first end-to-end milestone** (section 11), fixed together |
+| 3 | A: citation ticks, regenerate, e-mail draft · B: prompt tuning on Q1–Q9 · C: search, context, from-URL, similar | A: briefing view · B: ticks, banner, e-mail modal, technical details · C: search panel, context expander, source detail | acceptance items of section 13 ticked as each feature lands |
+| 4 | A: source summaries + TTS · B: embeddings hybrid retrieval + source scope · C: logboek + streaming + login gate/tunnel/rate limit | A: scope checkboxes + summaries in Bronnen · B: Lees voor + Logboek page · C: streaming answer view + login page | every section 13 item ticked; submission uploaded |
 
-Lunch at the desk. One optional mentor question at ~13:00: "Is 'toepasselijkheid niet geverifieerd' wording you understand, and would you tick passages you checked?"
+**Video is recorded while building, not after.** Keep the screen recorder ready from Checkpoint 2 on; every time a storyboard beat (section 14) works for the first time, record that beat as a short clip immediately (question → answer → click citation → PDF page; upload a source → historical flag; disable → history keeps evidence; Instellingen switch; briefing print). The final 3-minute cut is assembled from those clips with a voice-over; the only external constraint is the organisers' deadline — the YouTube link must be in the Google Form by **16:30**, and the link must play in a private window before you submit.
 
-**Cut rule (agreed now, so nobody negotiates it at 15:00):** at 15:00 anything in tier 3–4 that is not working is dropped; at 15:10 any tier-2 item that is not working is dropped in the order of section 12; tier 1 is never dropped.
+**Build-order rule (agreed now):** tiers are built strictly in the order of section 12 and every item in every tier is built. A track starts its next-tier item only when its current item is integrated and green, so an unfinished lower tier never blocks a criterion. If a tier-1 item is technically stuck, the section 12 alternative implementation for that item is used immediately rather than waiting.
 
 ---
 
@@ -52,9 +46,9 @@ Lunch at the desk. One optional mentor question at ~13:00: "Is 'toepasselijkheid
 - Source library: upload PDF or add by URL, edit metadata, enable/disable, replace with a new version (old superseded), officer-maintained applicability, processing status with clear failure, per-source passage view, direct search in sources.
 - Provider-neutral model layer: choose provider + model + reasoning effort per task (answer / e-mail draft / summary / read-aloud) and manage API keys in *Instellingen*; keys stay server-side.
 - Explicit gaps, warnings and conflicts; deterministic applicability warnings computed by the server.
-- All optional guidance from the challenge page (section 12 maps each item).
+- All optional guidance from the challenge page (section 12 maps each item), plus: per-source summaries, read-aloud, per-question source scope, hybrid retrieval switch, a Logboek of every answer and source event, a streaming answer view, and a password-gated public tunnel so the jury can try the demo.
 
-**Out of scope:** public chatbot, sending mail, OCR, custom PDF viewer/annotation, multi-tenant, accounts/roles, hosting (local demo), legal-validity engine, vector DB (not needed), multi-agent loops, encrypting keys at rest (documented limitation).
+**Out of scope:** public chatbot, sending mail, OCR, custom PDF viewer/annotation, multi-tenant, user accounts/roles (one shared workspace password only), Supabase/cloud hosting (post-event path, §8.6), legal-validity engine, multi-agent loops, encrypting keys at rest (documented limitation).
 
 ---
 
@@ -124,7 +118,7 @@ flowchart LR
 | Answer with citations (the one real call per question) | **OpenAI `gpt-6-astra`** | `Output.object` schema (§8.4), `reasoningEffort: 'low'`, `maxOutputTokens: 2500` | Criterion-1 call: Dutch legal text, strict citation discipline, verbatim fragment copying — the most capable model earns its price here. ≈ $0.15–0.25 per question (≈10k input tokens at $10/M + output/reasoning at $50/M); 60 runs ≈ $12 of the $50 credit. | `gpt-5.6-sol` (~40 % of the cost); `effort: 'medium'` only if a test question shows sloppy citations at `low` |
 | Verbatim fragment selection | same call (schema field) | server verifies substring | No second call | whole passage shown |
 | E-mail draft | **OpenAI `gpt-5.6-terra`** | plain text, `reasoningEffort: 'none'` | Pure rewrite of the reviewed text + citation list; 2–5 s; $2/$12 per M | `gpt-5.6-luna` |
-| Per-source 3-line summary at upload (tier 3) | `gpt-5.6-luna` | `reasoningEffort: 'none'` | Trivial; $0.2/$1.2 per M | skip |
+| Per-source 3-line summary at upload (tier 3) | `gpt-5.6-luna` | `reasoningEffort: 'none'` | Trivial; $0.2/$1.2 per M | `gpt-5.6-terra` |
 | Read aloud "Lees voor" (tier 3, accessibility + ElevenLabs track) | ElevenLabs `eleven_multilingual_v2` | voice id in settings | Dutch TTS; partner award eligibility | OpenAI `gpt-4o-mini-tts` |
 | Retrieval, validation, applicability warnings, search, similar answers | **no model** (FTS5 + code) | | Deterministic, auditable, free | — |
 | Optional hybrid retrieval (tier 3) | `text-embedding-3-small` | | Only if BM25 misses paraphrases | skip |
@@ -139,7 +133,7 @@ flowchart LR
 | Anthropic (`anthropic`) | `@ai-sdk/anthropic` · `ANTHROPIC_API_KEY` | `claude-opus-5` ($5/$25) · `claude-fable-5-1` ($10/$50) | `claude-sonnet-5` ($2/$10) · `claude-haiku-4-5` ($1/$5) | Structured output via the SDK's tool-call path; 1M context. |
 | Google (`google`) | `@ai-sdk/google` · `GOOGLE_GENERATIVE_AI_API_KEY` | `gemini-3.1-pro-preview` · `gemini-3.8-flash` | `gemini-3.8-flash` · `gemini-3.5-flash-lite` | `responseSchema` structured output. |
 | Mistral (`mistral`) | `@ai-sdk/mistral` · `MISTRAL_API_KEY` | `mistral-medium-latest` (Mistral Medium 3.5) | `mistral-small-latest` (Mistral Small 4) | **EU-hosted**; JSON-schema output. Dated ids follow `mistral-medium-2604` [assumption from the docs' naming pattern; the `-latest` aliases are the safe choice]. |
-| Azure OpenAI (`azure`) | `@ai-sdk/azure` · `AZURE_OPENAI_API_KEY` + `AZURE_RESOURCE_NAME` | deployment name | deployment name | EU region option for municipalities; same models as OpenAI. Tier 3 (only if someone has a resource to test). |
+| Azure OpenAI (`azure`) | `@ai-sdk/azure` · `AZURE_OPENAI_API_KEY` + `AZURE_RESOURCE_NAME` | deployment name | deployment name | EU region option for municipalities; same models as OpenAI. Wired in the registry (tier 3); without an Azure resource today the row shows "niet getest". |
 | Custom OpenAI-compatible (`custom`) | `@ai-sdk/openai-compatible` · `CUSTOM_LLM_API_KEY` + `CUSTOM_LLM_BASE_URL` | free text | free text | OpenRouter, Groq, Together, vLLM, **Ollama** (local, no key). JSON mode + zod validation + one retry. |
 
 Key precedence: a key saved in *Instellingen* (DB) overrides the env var; env is the bootstrap. Keys are stored in SQLite on the officer's machine (plaintext — documented limitation; env vars for hosted use), returned to the browser only masked (`sk-…7f3a`), never logged.
@@ -152,7 +146,7 @@ Key precedence: a key saved in *Instellingen* (DB) overrides the env var; env is
 | Prompt tuning on the 9 test questions | Part 1 | GPT-6 Astra `high` to analyse failures; you read every real output | Judgement work; never delegate the reading |
 | Next.js scaffold, layout, components, states, settings page | Part 2 with Codex | GPT-5.6 Sol at `medium`; GPT-6 Astra only for the chip↔evidence sync and the approve/edit state machine | Well-specified, boilerplate-heavy; speed matters |
 | Mechanical edits (Dutch copy, renames, CSS) | either | GPT-5.6 Terra/Luna at `low`/`none` | No judgement needed |
-| Pre-freeze read-only review of `answer.ts` + `llm.ts` (15:05, 10 min) | Part 2 asks an agent | GPT-6 Astra `high`, read-only | Independent eyes on criterion-1 code |
+| Read-only review of `answer.ts` + `llm.ts` before the final video cut | Part 2 asks an agent | GPT-6 Astra `high`, read-only | Independent eyes on criterion-1 code |
 | Video script | either | any | — |
 
 Rule for both agents: **no tests, linters or formatters during sprints.** Commit every 15–20 minutes to `main` after `git pull --rebase`; file ownership is disjoint (section 10).
@@ -200,11 +194,18 @@ Input "Zoekterm(en)", results from `GET /api/search?q=` as passage cards (source
 - Section **"Taalmodel per taak"** — rows Antwoord · E-mailconcept · Samenvatting (tier 3): Aanbieder (select), Model (select from the provider's curated list + "Ander model-ID…" free text), Redeneerinspanning (select, shown only where the provider supports it), **"Test"** → "OK · 2,3 s · openai/gpt-6-astra" or the error. Note under Antwoord: "Getest met OpenAI gpt-6-astra. Andere aanbieders worden ondersteund maar zijn niet afgestemd."
 - Section **"API-sleutels per aanbieder"** — one row per provider: status badge "Ingesteld via omgeving" / "Ingesteld (…7f3a)" / "Niet ingesteld"; input "Nieuwe sleutel"; "Opslaan"; "Verwijderen" (DB key only); for `custom`: also "Basis-URL". Help text: "Sleutels worden alleen op de server bewaard en nooit naar de browser gestuurd."
 - Section **"Voorlezen (optioneel)"** — Aanbieder (Uit / ElevenLabs / OpenAI), Stem-ID, key row; button "Test".
+- Section **"Zoeken"** — retrieval mode radio "Alleen tekstzoeken (BM25)" / "Hybride (BM25 + embeddings)"; the hybrid option is disabled with the note "Vereist een OpenAI-sleutel voor embeddings" when `retrieval.embeddingsAvailable` is false; button "Embeddings berekenen voor alle bronnen".
 - Section **"Werkruimte"** — municipality name (read-only, from env), retrieval budget (read-only), link to the JSON API.
+
+### 5.7 Tier 3–4 additions to existing screens
+- Nieuwe vraag: collapsible **"Beperk tot bronnen"** (checkbox per enabled source, default all; badge "beperkt tot N bronnen" on the answer); **"Lees voor"** button on the review card (plays `/api/tts`, shows "Voorlezen niet ingesteld" with a link to Instellingen when 409); when the streaming route is available the answer text appears progressively under "Antwoord wordt opgesteld…", markers become clickable when the final validated answer arrives.
+- Bronnen: "Samenvatting" column (truncated, full text on the detail page), "Samenvatting genereren" and "Embeddings berekenen" on the detail page.
+- **Logboek (`/logboek`)**: table Datum · Soort (Antwoord/Bron) · Gebeurtenis (Dutch label per event type) · Detail · link to the answer or source. Empty state "Nog geen gebeurtenissen."
+- **Login (`/login`)**: single field "Wachtwoord van de werkruimte", shown only when `APP_PASSWORD` is set; wrong password → "Onjuist wachtwoord."
 
 ---
 
-## 6. Shared contract — `web/src/lib/types.ts` (Part 1 writes at T+0:10; then frozen)
+## 6. Shared contract — `web/src/lib/types.ts` (Part 1 writes in Sprint 0; then frozen)
 
 ```ts
 export type Level = 'municipal' | 'provincial' | 'flemish' | 'federal';
@@ -249,7 +250,7 @@ export interface Answer {
   citations: Citation[]; events: AnswerEvent[];
   provider: ProviderId; model: string; effort: Effort | null; passagesSent: number; sourcesUsed: number;
   passagesSentList?: { passageId: string; label: string; cited: boolean; sourceTitle: string; pageStart: number }[];
-  promptSnapshot?: string; regeneratedFromId: string | null; sourcesChangedSince: boolean;
+  promptSnapshot?: string; regeneratedFromId: string | null; sourcesChangedSince: boolean; scopeSourceIds: string[] | null;
   createdAt: string; updatedAt: string; reviewedAt: string | null;
 }
 export interface AnswerListItem { id: string; question: string; status: AnswerStatus; canAnswer: CanAnswer; citationCount: number; checkedCount: number; createdAt: string; }
@@ -260,8 +261,10 @@ export interface Settings {
   tasks: Record<LlmTask, TaskModel>;
   providers: ProviderInfo[];
   tts: { provider: 'none' | 'elevenlabs' | 'openai'; voiceId: string | null; hasKey: boolean };
+  retrieval: { mode: 'bm25' | 'hybrid'; embeddingsAvailable: boolean };
   municipality: string; testedConfiguration: string;   // "openai/gpt-6-astra"
 }
+export interface EventLogItem { id: string; at: string; kind: 'answer' | 'source'; type: string; detail: string | null; answerId: string | null; sourceId: string | null; label: string; }
 export interface ApiError { error: { code: string; message: string } }
 ```
 
@@ -282,7 +285,8 @@ export interface ApiError { error: { code: string; message: string } }
 | `GET /api/files/:versionId` | — | PDF, `inline` | `#page=N` |
 | `GET /api/passages/:id/context` | — | `{ previous: Passage \| null, current: Passage, next: Passage \| null }` | "Toon context" |
 | `GET /api/search?q=` | — | `SearchHit[]` (max 20) | FTS over enabled/ready/current passages, no model |
-| `POST /api/answers` | `{ question }` | `Answer` 201 | the pipeline; 502 `model_failed`; 409 `no_model_configured` |
+| `POST /api/answers` | `{ question, sourceIds?: string[] }` | `Answer` 201 | the pipeline; 502 `model_failed`; 409 `no_model_configured`; `sourceIds` narrows retrieval (tier 3) |
+| `POST /api/answers/stream` | same | `text/event-stream`: `partial` `{ antwoord }` … `final` `Answer` / `error` | tier 4; same validation/storage as the non-streaming route |
 | `GET /api/answers` | — | `AnswerListItem[]` | newest first |
 | `GET /api/answers/:id` | — | `Answer` incl. `promptSnapshot`, `passagesSentList`, `sourcesChangedSince` | |
 | `PATCH /api/answers/:id` | `{ reviewedAnswer?, status?, reviewNote? }` | `Answer` | edit while approved → `draft` + event; `reviewedAnswer === generatedAnswer` stores null |
@@ -293,9 +297,13 @@ export interface ApiError { error: { code: string; message: string } }
 | `GET /api/settings` | — | `Settings` | keys masked |
 | `PUT /api/settings` | `{ tasks?: Partial<Record<LlmTask, TaskModel>>, keys?: Partial<Record<ProviderId, string \| null>>, custom?: { baseUrl }, tts?: {...} }` | `Settings` | `null` key deletes the DB key (env stays) |
 | `POST /api/settings/test` | `{ task }` | `{ ok, latencyMs, provider, model, error? }` | tiny structured call `{ ok: true }` |
-| `POST /api/tts` | `{ answerId }` | `audio/mpeg` | tier 3 |
+| `POST /api/tts` | `{ answerId }` | `audio/mpeg` | tier 3; 409 `no_tts_configured` |
+| `POST /api/sources/:id/summary` | — | `Source` | tier 3; fills `summary` |
+| `POST /api/sources/:id/embed` | — | `{ embedded: number }` | tier 3; computes passage embeddings for hybrid retrieval |
+| `GET /api/events?limit=` | — | `EventLogItem[]` | tier 3; answer + source events, newest first |
+| `POST /api/login` | `{ password }` | `204` + cookie | tier 4; only when `APP_PASSWORD` is set |
 
-Retrieval boundary in SQL: passages of `sources.current_version_id` only, `processing_status='ready'`, `sources.enabled=1`.
+Retrieval boundary in SQL: passages of `sources.current_version_id` only, `processing_status='ready'`, `sources.enabled=1` (and `sources.id IN (sourceIds)` when a scope is given). `PUT /api/settings` also accepts `retrieval?: { mode }`.
 
 ---
 
@@ -332,6 +340,10 @@ CREATE TABLE IF NOT EXISTS answer_citations (
 CREATE TABLE IF NOT EXISTS answer_events (
   id TEXT PRIMARY KEY, answer_id TEXT NOT NULL REFERENCES answers(id), type TEXT NOT NULL, detail TEXT, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS source_events (
+  id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(id), type TEXT NOT NULL, detail TEXT, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS passage_embeddings (passage_id TEXT PRIMARY KEY REFERENCES passages(id), dims INTEGER NOT NULL, vector BLOB NOT NULL);
+-- answers also carries scope_json TEXT (tier 3 source scope)
 ```
 `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;` IDs `crypto.randomUUID()`; ISO timestamps. Passages and citations are never deleted or edited → old answers stay intact.
 
@@ -436,11 +448,23 @@ One retry on transport/JSON failure; then 502 `model_failed`. No self-checking l
 
 **Settings API:** `GET` builds `Settings` (masked keys, `models` per provider from the registry); `PUT` upserts rows `task.answer`, `task.draft`, `task.summary`, `key.<provider>`, `custom.baseUrl`, `tts.*`; `POST /test` calls `generateStructured(task, { schema: z.object({ ok: z.boolean() }), prompt: 'Antwoord met ok=true.' })` and reports latency.
 
+### 8.5 Tier 3 specifications
+- **Source summary** — `POST /api/sources/:id/summary` (also called automatically at the end of `ingestPdf` when a key for the `summary` task resolves): `generateTextPlain('summary', …)` over the first ~6 000 chars + metadata → three Dutch sentences (what the document regulates, for whom, date/status as stated in the text). Stored in `sources.summary`; shown on the Bronnen table row (truncated) and detail page; a "Samenvatting genereren" button covers seeded sources ingested before a key existed. The summary is never sent to the answer prompt (it is derived, not source text).
+- **Read aloud** — `POST /api/tts { answerId }` → `audio/mpeg`. ElevenLabs: `POST https://api.elevenlabs.io/v1/text-to-speech/{voiceId}` with header `xi-api-key`, body `{ text, model_id: 'eleven_multilingual_v2' }`; text = reviewed text with `[n]` markers stripped, max 2 500 chars. OpenAI fallback: `audio.speech.create({ model: 'gpt-4o-mini-tts', voice: 'alloy', input })` (via the `openai` package, key from the same registry). Provider/voice/key from `tts.*` settings; 409 `no_tts_configured` otherwise.
+- **Source scope per question** — `POST /api/answers { question, sourceIds?: string[] }`; retrieval adds `AND s.id IN (…)`; stored as `answers.scope_json`; exposed as `Answer.scopeSourceIds`; shown in "Technische details" and on the answer badge ("beperkt tot N bronnen").
+- **Hybrid retrieval** — table `passage_embeddings (passage_id TEXT PRIMARY KEY, dims INTEGER, vector BLOB)`; at ingest (and via `POST /api/sources/:id/embed` for existing sources) compute `embedMany` with `openai.textEmbeddingModel('text-embedding-3-small')` when an OpenAI key resolves. Retrieval mode from settings `retrieval.mode` (`'bm25'` default, `'hybrid'`): hybrid = BM25 top-40 ∪ cosine top-40 (computed in JS over the enabled corpus — ~1 500 vectors, milliseconds) fused by reciprocal rank (`1/(60+rank)`), then the same character budget. `Settings.retrieval.embeddingsAvailable` tells the UI whether the switch is enabled.
+- **Logboek** — table `source_events (id, source_id, type, detail, at)` written by every source write endpoint (`created`, `enabled`, `disabled`, `version_added`, `applicability_changed`, `metadata_edited`, `summary_generated`); `GET /api/events?limit=200` merges `answer_events` + `source_events` newest first with links; page `/logboek`.
+- **Azure OpenAI** — registry entry with `createAzure({ resourceName, apiKey })`; model field = deployment name (free text); appears in Instellingen like any provider.
+
+### 8.6 Tier 4 specifications
+- **Streaming answer** — `POST /api/answers/stream` (same body as `POST /api/answers`) returns `text/event-stream`: the pipeline runs `streamText` with `output: Output.object({ schema })`; every partial object from `partialOutputStream` is forwarded as `event: partial` `{ antwoord }` (throttled to ~10 events/s); after the stream ends, validation and storage run exactly as in 8.4 and `event: final` carries the full `Answer`; `event: error` carries `{ code, message }`. The UI renders the growing `antwoord` as plain text (markers not clickable yet) and swaps to the validated answer on `final`. The non-streaming endpoint stays for curl/tools.
+- **Jury-accessible demo** — `web/src/middleware.ts`: when `APP_PASSWORD` is set, every route except `/login`, `/api/login` and static assets requires cookie `ea_session` (HMAC of the password with `APP_SESSION_SECRET`); `POST /api/login { password }` sets it (httpOnly, 12 h); page `/login` ("Wachtwoord van de werkruimte"). Rate limit: in-memory token bucket per IP on `POST /api/answers*` and `/api/tts` (10 per minute, 429 "Te veel aanvragen, probeer over een minuut opnieuw"). Public URL: `cloudflared tunnel --url http://localhost:3000` (quick tunnel, no account) — the URL + password go on the card at the table and in the form's description. **Decision:** Supabase (Postgres FTS + Storage) is the post-event hosting path, not today's work — it would replace the SQLite/FTS5 layer the criteria rest on; the tunnel delivers the same "try it" value with zero storage risk.
+
 ---
 
 ## 9. Part 2 — UI notes (teammate)
 - `web/src/lib/fixtures.ts`: one `Answer` (Q1, 3 citations, one `highlight`, one checked citation, gaps, two warnings, `sourcesChangedSince: false`), nine `Source`s mirroring section 8.2 (one with `documentDate: null`, three `historical`, one with a superseded version), two `AnswerListItem`s, one `Settings` object. Shapes = `types.ts` exactly.
-- `web/src/lib/api-client.ts`: one function per endpoint in section 7. Until Part 1's endpoints exist, `askQuestion` resolves the fixture after 1.5 s when `NEXT_PUBLIC_USE_FIXTURES=1`; flip off at Checkpoint 2, delete before freeze.
+- `web/src/lib/api-client.ts`: one function per endpoint in section 7. Until Part 1's endpoints exist, `askQuestion` resolves the fixture after 1.5 s when `NEXT_PUBLIC_USE_FIXTURES=1`; flip off at Checkpoint 2 and delete the flag right after.
 - Components: `AppShell`, `ModelBadge`, `QuestionForm`, `AnswerView` (+`CitationChip`), `UncertaintyCard`, `ReviewCard`, `EvidencePanel` (+`CitationCard`, `ContextExpander`), `SourceTable`, `SourceForm` (file/URL modes), `ApplicabilityForm`, `VersionUploadForm`, `SourceDetail`, `SearchPanel`, `HistoryTable`, `HistoryDetail`, `BriefingView`, `EmailDraftModal`, `SettingsPage` (+`TaskModelRow`, `ProviderKeyRow`), `Badge`, `Toast`. `activeMarker` state lives in the page.
 - Copy footer format: `\n\nBronnen:\n[1] {sourceTitle} — {article} — p. {pages} — {originalUrl ?? '(intern document)'}`.
 - Client-side rendering (`'use client'` pages fetching the API) is fine; no server actions.
@@ -451,8 +475,8 @@ One retry on transport/JSON failure; then 502 `model_failed`. No self-checking l
 
 | Part 1 (engine) | Part 2 (UI) |
 |---|---|
-| `web/package.json` engine deps, `web/next.config.ts`, `web/.env.example`, `web/.gitignore` | `web/src/app/layout.tsx`, `page.tsx`, `bronnen/page.tsx`, `bronnen/[id]/page.tsx`, `geschiedenis/page.tsx`, `geschiedenis/[id]/page.tsx`, `geschiedenis/[id]/briefing/page.tsx`, `instellingen/page.tsx`, `globals.css` |
-| `web/src/lib/types.ts` (frozen after T+0:15), `db.ts`, `ingest/*`, `retrieve.ts`, `answer.ts`, `llm.ts`, `settings.ts`, `dto.ts` | `web/src/components/**`, `web/src/lib/api-client.ts`, `web/src/lib/fixtures.ts` |
+| `web/package.json` engine deps, `web/next.config.ts`, `web/.env.example`, `web/.gitignore` | `web/src/app/layout.tsx`, `page.tsx`, `bronnen/page.tsx`, `bronnen/[id]/page.tsx`, `geschiedenis/page.tsx`, `geschiedenis/[id]/page.tsx`, `geschiedenis/[id]/briefing/page.tsx`, `instellingen/page.tsx`, `logboek/page.tsx`, `login/page.tsx`, `globals.css` |
+| `web/src/lib/types.ts` (frozen after Sprint 0), `db.ts`, `ingest/*`, `retrieve.ts`, `answer.ts`, `llm.ts`, `settings.ts`, `dto.ts`, `middleware.ts` | `web/src/components/**`, `web/src/lib/api-client.ts`, `web/src/lib/fixtures.ts` |
 | `web/src/app/api/**` | `docs/video-script.md`, one architecture slide |
 | `web/scripts/seed.ts` | |
 
@@ -460,7 +484,7 @@ Git: both push to `main`; `git pull --rebase` before push; messages `p1: …` / 
 
 ---
 
-## 11. First end-to-end milestone (Checkpoint 2, 13:50)
+## 11. First end-to-end milestone (Checkpoint 2)
 On one laptop, no fixtures:
 1. `npm run seed` ingested nine documents; *Bronnen* shows nine rows, three "Historisch", the terrace "Datum onbekend", the 2006 KB with an extraction warning, all others "Toepasselijkheid niet geverifieerd".
 2. Paste Q1 → within ~25 s a Dutch answer with ≥ 3 markers appears; the header badge shows `gpt-6-astra (OpenAI)`.
@@ -470,11 +494,11 @@ If (3) fails on page numbers or if the answer cites FAVV/VLAIO passages for Q1 i
 
 ---
 
-## 12. Priorities, optional-guidance map, cut list
+## 12. Build order (everything is built) and the optional-guidance map
 
-**Tier 1 — the criteria (never cut):** cited Dutch answer · evidence panel with page/article/quote · PDF-at-page + original link · gaps/warnings/conflicts · edit/approve/reject persisted · copy · upload + enable/disable + replace + applicability (default unverified) · nine sources seeded with statuses · history retaining original evidence · loading/empty/error states · provider-neutral model layer with env keys (so the demo survives a key failure).
+**Tier 1 — the criteria, built first:** cited Dutch answer · evidence panel with page/article/quote · PDF-at-page + original link · gaps/warnings/conflicts · edit/approve/reject persisted · copy · upload + enable/disable + replace + applicability (default unverified) · nine sources seeded with statuses · history retaining original evidence · loading/empty/error states · provider-neutral model layer with env keys.
 
-**Tier 2 — planned and scheduled (cut order from the bottom if behind at 15:10):**
+**Tier 2 — built next, in this order:**
 1. Instellingen page (provider/model/effort per task, keys, test button, model badge)
 2. Per-citation "Gecontroleerd" ticks + progress line
 3. "Sinds dit antwoord zijn bronnen gewijzigd" banner + regenerate
@@ -486,16 +510,17 @@ If (3) fails on page numbers or if the answer cites FAVV/VLAIO passages for Q1 i
 9. Add source by URL
 10. Similar previous answers · event timeline · technical details with passages-sent list · JSON export · verbatim highlight · sources-per-level grouping · uncited-sentence count
 
-**Tier 3 (only if tier 2 is done by 15:00):** per-source summary at upload · read aloud "Lees voor" (ElevenLabs/OpenAI TTS) · Azure provider entry tested · per-question source scope checkboxes · hybrid embeddings retrieval · global "Logboek" page.
-**Tier 4:** streaming partial answers · Supabase-hosted variant with a shared password.
+**Tier 3 — built after tier 2 (specs in §8.5):** 1. per-source summary at upload (+ "Samenvatting genereren") · 2. read aloud "Lees voor" (ElevenLabs, OpenAI fallback) · 3. per-question source scope "Beperk tot bronnen" · 4. hybrid retrieval (BM25 + embeddings, switch in Instellingen) · 5. Logboek page (answer + source events) · 6. Azure provider entry.
 
-**Optional guidance from the challenge page → where it lives:** grounding/refusal → §8.4 rules 1–4 + validation; source boundaries in the retrieval layer → SQL filter; legal reasoning across four levels → rule 6 + level badges + "per niveau" grouping; officer tasks (explain steps, draft replies, summarise policy, comparable cases) → answer, e-mail draft, source summaries (tier 3), similar answers; source updates within minutes → upload/URL/replace, synchronous ingest; human review, never send → status workflow, copy/print only; audit + accessibility → prompt snapshot, passages-sent list, events, keyboard/contrast rules, "Lees voor" (tier 3); reuse across municipalities/providers → env + Bronnen + Instellingen; "Tom" export/API → JSON export + REST.
+**Tier 4 — built last (specs in §8.6):** 1. streaming answer (`POST /api/answers/stream`) · 2. jury-accessible demo: password gate + rate limit + public tunnel URL. Supabase hosting is a deliberate non-item today (reason in §8.6); it is the documented post-event path.
 
-Simplifications before eliminations: replace-version → "upload new + disable old"; metadata edit → at upload only; highlight → whole passage; timeline → status + timestamps; settings → env-only keys with a read-only page.
+**Optional guidance from the challenge page → where it lives:** grounding/refusal → §8.4 rules 1–4 + validation; source boundaries in the retrieval layer → SQL filter (+ scope); legal reasoning across four levels → rule 6 + level badges + "per niveau" grouping; officer tasks (explain steps, draft replies, summarise policy, comparable cases) → answer, e-mail draft, source summaries, similar answers; source updates within minutes → upload/URL/replace, synchronous ingest; human review, never send → status workflow, copy/print only; audit + accessibility → prompt snapshot, passages-sent list, events, Logboek, keyboard/contrast rules, "Lees voor"; reuse across municipalities/providers → env + Bronnen + Instellingen; "Tom" export/API → JSON export + REST + tunnel link.
+
+**Alternative implementations for tier-1 items that get technically stuck (the item still ships, differently):** replace-version → "upload new + disable old" while keeping the versions table; metadata edit → set at upload, edited inline later; highlight → whole passage shown; timeline → status + timestamps; settings keys → env-only with a read-only page until the DB path works.
 
 ---
 
-## 13. Acceptance checklist (15:20; tick in order)
+## 13. Acceptance checklist (tick each item the moment its feature lands; full pass before the final video cut)
 
 Test questions — expected findings verified against the PDFs today (all nine documents enabled unless stated):
 
@@ -525,12 +550,19 @@ Checklist:
 11. Kill all keys → asking shows the error with "Ga naar Instellingen"; nothing half-saved. ✔
 12. Search "loting" in "Zoek in bronnen" → Art. 12 hit with snippet and page. ✔
 13. Loading/empty/error states look intentional; Tab reaches markers, ticks and buttons. ✔
+14. Bronnen detail → "Samenvatting genereren" fills three Dutch sentences; new uploads get one automatically. ✔
+15. "Lees voor" on an approved answer plays Dutch audio of the reviewed text; with no TTS key the button explains and links to Instellingen. ✔
+16. Ask Q3 with "Beperk tot bronnen" = marktreglement only → the answer says the fee is not in the selected sources; badge "beperkt tot 1 bron"; technical details list the scope. ✔
+17. Instellingen → "Embeddings berekenen" → switch to Hybride → Q9 still cites VLAIO p. 10 and Art. 8; switch back to BM25 → same. ✔
+18. Logboek lists the upload, the disable, the applicability change and every answer event in order, with working links. ✔
+19. Streaming: Q1 shows text growing within a few seconds, then swaps to the validated answer with clickable markers identical to the non-streaming route. ✔
+20. Set `APP_PASSWORD`, restart → `/` redirects to `/login`; correct password enters; the tunnel URL works from a phone; 11 rapid questions → the 11th gets 429. ✔
 
 ---
 
-## 14. Three-minute demo storyboard (record 15:40; Part 2 drives, Part 1 narrates; screen text Dutch)
+## 14. Three-minute demo storyboard (clips recorded during the build, assembled at the end; Part 2 drives, Part 1 narrates; screen text Dutch)
 
-First frame: team name + "Challenge 2 — Answer Like the Expert". Recorder: Windows Game Bar (Win+G) or OBS, 1080p, browser zoom 110 %, other tabs closed. Fresh `storage/`, `npm run seed -- --skip HISTORICAL-FAVV-controle-gids-cover-2022.pdf`.
+First frame: team name + "Challenge 2 — Answer Like the Expert". Recorder: Windows Game Bar (Win+G) or OBS, 1080p, browser zoom 110 %, other tabs closed. Seed once with `npm run seed -- --skip HISTORICAL-FAVV-controle-gids-cover-2022.pdf` so that the Bronnen beat can add that document live on camera; re-record a beat whenever the feature improves — the last good clip wins.
 
 | Time | Screen | Narration (gist) |
 |---|---|---|
@@ -548,35 +580,33 @@ Before submitting: play the YouTube link in a private window; put it in the form
 
 | Item | Status | Action |
 |---|---|---|
-| OpenAI API key | **Not on this machine.** Partner code ($50/member) by e-mail (Billing → Promotions) | T+0: redeem → `web/.env.local` `OPENAI_API_KEY`. No mail yet → any personal key of any supported provider goes into *Instellingen* or env; the demo stays real. |
+| OpenAI API key | **Not on this machine.** Partner code ($50/member) by e-mail (Billing → Promotions) | Sprint 0: redeem → `web/.env.local` `OPENAI_API_KEY`. No mail yet → any personal key of any supported provider goes into *Instellingen* or env; the demo stays real. |
 | Other provider keys | Optional; whichever teammate has one (Anthropic/Google/Mistral) | Enter in *Instellingen* for acceptance item 10; otherwise test the switch with `gpt-5.6-sol`. |
 | Model IDs | Verified today on official pages: `gpt-6-astra`, `gpt-5.6-sol/terra/luna`, `claude-opus-5/sonnet-5/haiku-4-5/fable-5-1`, `gemini-3.8-flash/3.1-pro-preview/3.5-flash-lite`, `mistral-medium-latest/small-latest` | Change only in *Instellingen*/env. |
 | AI SDK API shape | `generateText` + `Output.object()` and `providerOptions.openai.reasoningEffort` verified in today's docs | If the installed major version differs, adapt `llm.ts` only. |
 | Node 22.23 / npm 10.9 / `better-sqlite3` prebuilt / `unpdf` | Verified on this laptop | `npm install` immediately while Wi-Fi works. Teammate's machine [assumption: Windows/Node ≥ 20]. |
 | PDFs + original URLs | Nine present; two URLs live | Seed all nine. |
 | Internet at venue | Needed for model calls, installs, from-URL | No offline fallback planned — the demo uses real calls. |
-| Video tooling | Recorder, mic, YouTube account, Google Form | Part 2 checks recorder + YouTube login at 14:45. |
+| Video tooling | Recorder, mic, YouTube account, Google Form | Part 2 checks recorder + YouTube login at Checkpoint 2 (first clips are recorded right after it). |
 | Scope of truth | Prototype is not legally authoritative, production-ready or comprehensive; keys stored unencrypted locally | Say so in the video and in the UI subtitle/settings help text. |
 
 ---
 
-## 16. Step-by-step task lists
+## 16. Task lists by sprint and track (every item ships)
 
 ### Part 1 (you)
-1. **T+0:00–0:15 Bootstrap.** `npx create-next-app@latest web` (TypeScript, Tailwind, App Router, `src/`, npm) · `cd web && npm i better-sqlite3 unpdf ai @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google @ai-sdk/mistral @ai-sdk/openai-compatible zod && npm i -D @types/better-sqlite3 tsx` · `next.config.ts` externals · `.env.example` (`OPENAI_API_KEY=`, `ANTHROPIC_API_KEY=`, `GOOGLE_GENERATIVE_AI_API_KEY=`, `MISTRAL_API_KEY=`, `CUSTOM_LLM_BASE_URL=`, `CUSTOM_LLM_API_KEY=`, `ELEVENLABS_API_KEY=`, `MUNICIPALITY_NAME=Schoten`, `RETRIEVAL_CHAR_BUDGET=60000`) · `.gitignore` `storage/`, `.env*.local` · paste `types.ts` · script `"seed": "tsx scripts/seed.ts"` · commit `p1: scaffold + contract` · push. Tell Part 2 to pull.
-2. **T+0:15–0:45 DB + ingestion + seed.** `db.ts`, `ingest/extract.ts`, `ingest/chunk.ts`, `ingest/index.ts`, `scripts/seed.ts` (nine entries, `--skip`). Run `npm run seed`; check the Article 13 sanity line (p. 5–6) and the per-document passage counts (2006 KB must show its extraction warning, not fail). Commit.
-3. **T+0:45–1:00 Read endpoints.** `dto.ts`; `GET /api/sources`, `/api/sources/[id]`, `/api/sources/[id]/passages`, `/api/files/[versionId]`, `/api/answers`, `/api/answers/[id]`, `/api/settings` (read-only for now). Verify `/api/files/<id>#page=5` opens on page 5. Commit → **Checkpoint 1**.
-4. **T+1:00–1:50 Model layer + generation.** `llm.ts` (registry, settings merge, `generateStructured`), `retrieve.ts`, `answer.ts` (prompt, schema, validation, storage), `POST /api/answers`. `curl` Q1 and Q6; read the outputs critically (markers valid? fragments found? market regulation cited, not FAVV?). Commit → **Checkpoint 2**.
-5. **T+2:05–2:45 Write endpoints + settings.** `POST /api/sources` (multipart), `PATCH /api/sources/[id]`, `POST …/versions`, `PATCH …/versions/[vid]`, `PATCH /api/answers/[id]` (status rules + events), `PATCH …/citations/[marker]`, `PUT /api/settings`, `POST /api/settings/test`. Commit.
-6. **T+2:45–3:20 Tier 2 endpoints + tuning.** `POST …/email-draft`, `GET /api/search`, `GET /api/passages/[id]/context`, `POST /api/sources/from-url`, `POST …/regenerate`, `GET /api/answers/similar`. Run Q1–Q9 once; adjust prompt wording only when a rule is violated. Commit. Freeze at 15:20.
+**Sprint 0.** `npx create-next-app@latest web` (TypeScript, Tailwind, App Router, `src/`, npm) · `cd web && npm i better-sqlite3 unpdf ai @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google @ai-sdk/mistral @ai-sdk/openai-compatible @ai-sdk/azure openai zod && npm i -D @types/better-sqlite3 tsx` · `next.config.ts` externals · `.env.example` (`OPENAI_API_KEY=`, `ANTHROPIC_API_KEY=`, `GOOGLE_GENERATIVE_AI_API_KEY=`, `MISTRAL_API_KEY=`, `AZURE_OPENAI_API_KEY=`, `AZURE_RESOURCE_NAME=`, `CUSTOM_LLM_BASE_URL=`, `CUSTOM_LLM_API_KEY=`, `ELEVENLABS_API_KEY=`, `APP_PASSWORD=`, `APP_SESSION_SECRET=`, `MUNICIPALITY_NAME=Schoten`, `RETRIEVAL_CHAR_BUDGET=60000`) · `.gitignore` `storage/`, `.env*.local` · paste `types.ts` · script `"seed": "tsx scripts/seed.ts"` · commit `p1: scaffold + contract` · push. Tell Part 2 to pull.
+**Sprint 1.** Track A: `db.ts`, `ingest/extract.ts`, `ingest/chunk.ts`, `ingest/index.ts`, `scripts/seed.ts` (nine entries, `--skip`); run `npm run seed`; check the Article 13 sanity line (p. 5–6) and per-document passage counts (2006 KB shows its extraction warning, does not fail). Track B: `llm.ts` (registry incl. Azure and custom, settings merge, `generateStructured`, `generateTextPlain`, `NoModelConfiguredError`). Track C: `dto.ts`; `GET /api/sources`, `/api/sources/[id]`, `/api/sources/[id]/passages`, `/api/files/[versionId]`, `/api/answers`, `/api/answers/[id]`, `/api/settings`; verify `/api/files/<id>#page=5` opens on page 5. Integrate, commit → **Checkpoint 1**.
+**Sprint 2.** Track A: `retrieve.ts`, `answer.ts` (prompt, schema, validation, storage), `POST /api/answers`; `curl` Q1 and Q6 and read the outputs critically (markers valid? fragments found? market regulation cited, not FAVV?). Track B: `POST /api/sources` (multipart), `PATCH /api/sources/[id]`, `POST …/versions`, `PATCH …/versions/[vid]`, `PATCH /api/answers/[id]` (status rules + events), `PUT /api/settings`, `POST /api/settings/test`, `source_events` logging. Track C (when A is green): `PATCH …/citations/[marker]`, `POST …/regenerate`, `POST …/email-draft`. Integrate, commit → **Checkpoint 2**.
+**Sprint 3.** Track A: `GET /api/search`, `GET /api/passages/[id]/context`, `POST /api/sources/from-url`, `GET /api/answers/similar`. Track B (you, not an agent): run Q1–Q9, tick section 13 items 1–3 and 8–12, adjust prompt wording only when a rule is violated. Track C: `POST /api/sources/[id]/summary` (+ automatic call at ingest), `POST /api/tts`. Commit.
+**Sprint 4.** Track A: `passage_embeddings`, `POST /api/sources/[id]/embed`, hybrid retrieval + `retrieval.mode` setting, `sourceIds` scope in `POST /api/answers`. Track B: `GET /api/events`, `POST /api/answers/stream` (SSE). Track C: `middleware.ts` + `/api/login` + rate limiter, `@ai-sdk/azure` registry entry, `cloudflared tunnel --url http://localhost:3000` and put URL + password on the table card. Commit. Before the final cut: ask an agent for the read-only review of `answer.ts` + `llm.ts` (§4.4) and fix what it finds.
 
 ### Part 2 (teammate)
-1. **T+0:00–0:15.** Collect keys (OpenAI partner code; any other provider key you own) → `web/.env.local`. Pull. Write `fixtures.ts` + `api-client.ts` from sections 6–7. Commit `p2: fixtures + client`.
-2. **T+0:15–1:00.** `AppShell` + nav + `ModelBadge`; Nieuwe vraag with all states; `AnswerView` + chips; `UncertaintyCard`; `EvidencePanel`/`CitationCard` with chip↔card sync, badges, tick checkbox, PDF/original buttons — on fixtures. Commit often.
-3. **T+1:00–1:50.** Bronnen table on real `GET /api/sources` (nine rows, badges, warnings); upload/URL form; toggle; applicability form; version form; Geschiedenis list; `ReviewCard` wired to `patchAnswer`. Commit.
-4. **T+1:50–2:05 Checkpoint 2:** switch `askQuestion` to the real endpoint; fix what breaks.
-5. **T+2:05–2:45.** Geschiedenis detail (original vs reviewed, banner + regenerate, timeline, technical details, JSON export); approved-edit → draft behaviour; **Instellingen page** (task rows, provider key rows, test buttons, TTS section); toasts; focus styles. Commit.
-6. **T+2:45–3:20.** Briefing print view; `ContextExpander`; `SearchPanel`; source detail page; `EmailDraftModal`; similar-answers block; polish; `docs/video-script.md` + architecture slide; test the recorder and the YouTube upload path. Freeze at 15:20.
+**Sprint 0.** Collect keys (OpenAI partner code; any other provider key you own; ElevenLabs if claimed) → `web/.env.local`. Pull. Write `fixtures.ts` + `api-client.ts` from sections 6–7 (every endpoint, including tier 3–4 ones). Commit `p2: fixtures + client`.
+**Sprint 1.** Track A: `AppShell` + nav + `ModelBadge`; Nieuwe vraag page with all states, example chips, Ctrl+Enter; `AnswerView` + chips. Track B: `EvidencePanel`/`CitationCard` with chip↔card sync, badges, tick checkbox, PDF/original/context buttons; `UncertaintyCard`. Track C: `ReviewCard` (edit, approve/reject/reopen, copy with footer, approved-edit → draft). All on fixtures. Integrate, commit → **Checkpoint 1** (Bronnen/Geschiedenis lists can already read the real `GET` endpoints).
+**Sprint 2.** Track A: Bronnen table on real data (nine rows, badges, warnings, summaries column), upload/URL form, toggle, applicability form, version form, metadata edit, "Vorige versies". Track B: Geschiedenis list + detail (original vs reviewed, banner + regenerate, timeline, technical details with passages-sent list, JSON export, similar block). Track C: Instellingen page (task rows with test buttons, provider key rows incl. Azure/custom, TTS section, retrieval mode switch, workspace section). At **Checkpoint 2** switch `askQuestion` to the real endpoint and fix what breaks; start recording clips.
+**Sprint 3.** Track A: briefing print view + "Briefing afdrukken". Track B: `EmailDraftModal`; ticks progress line; `SearchPanel` on Nieuwe vraag and Bronnen. Track C: `ContextExpander`; source detail page `/bronnen/[id]` with passage list + "Samenvatting genereren"; toasts; focus styles. Tick section 13 items 4–7 and 13 as they land; record the corresponding clips.
+**Sprint 4.** Track A: "Beperk tot bronnen" scope checkboxes on Nieuwe vraag; "Lees voor" button with `<audio>`. Track B: `/logboek` page; streaming answer view (growing text, swap on `final`). Track C: `/login` page; `docs/video-script.md` + architecture slide; assemble the final 3-minute cut from the clips, add voice-over, export.
 
-### Both — 15:20 → 16:15
-Acceptance checklist (section 13) → hotfixes → fresh `storage/` + seed with `--skip` → record → upload → private-window check → form → laptop stays running for the jury.
+### Both — closing
+Full pass of section 13 on a freshly seeded `storage/` → last clips → assemble → upload to YouTube (Unlisted or Public) → open the link in a private window → Google Form before **16:30** → laptop (and tunnel URL + password) stays available for the jury.

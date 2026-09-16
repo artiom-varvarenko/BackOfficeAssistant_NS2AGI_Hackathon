@@ -83,6 +83,7 @@ export interface Citation {
   versionLabel: string | null;
   applicability: Applicability;
   applicabilityNote: string | null;
+  verifiedAt: string | null; // set when applicability === 'verified' ("Geverifieerd op {date}")
   sourceEnabled: boolean;
   isCurrentVersion: boolean;
   pageStart: number;

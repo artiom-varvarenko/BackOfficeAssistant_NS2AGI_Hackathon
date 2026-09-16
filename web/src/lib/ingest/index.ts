@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { ApiError } from '@/lib/api';
 import { getDb, newId, nowIso, pdfPathForVersion } from '@/lib/db';
+import { addSourceEvent } from '@/lib/events';
 import type { DocType, Level } from '@/lib/types';
 import { chunkPages, type ChunkPassage, UNREADABLE_MESSAGE } from './chunk';
 import { extractPages } from './extract';
@@ -180,10 +181,7 @@ async function finishVersion(buffer: Buffer, ctx: ProcessContext): Promise<Inges
   const db = getDb();
   const analysis = await analyse(buffer, ctx.versionId);
   const now = nowIso();
-  const logEvent = (detail: string) =>
-    db
-      .prepare('INSERT INTO source_events (id, source_id, type, detail, at) VALUES (?, ?, ?, ?, ?)')
-      .run(newId(), ctx.sourceId, ctx.eventType, detail, now);
+  const logEvent = (detail: string) => addSourceEvent(ctx.sourceId, ctx.eventType, detail, db, now);
 
   if ('error' in analysis) {
     db.transaction(() => {

@@ -131,6 +131,7 @@ interface CitationRow {
   version_label: string | null;
   applicability: Applicability;
   applicability_note: string | null;
+  verified_at: string | null;
   source_id: string;
   source_title: string;
   authority: string | null;
@@ -217,7 +218,7 @@ function prepare(db: Database): Statements {
       SELECT c.marker, c.passage_id, c.version_id, c.quote_text, c.highlight,
              c.checked, c.check_note, c.checked_at,
              p.page_start, p.page_end, p.article, p.section,
-             v.document_date, v.version_label, v.applicability, v.applicability_note,
+             v.document_date, v.version_label, v.applicability, v.applicability_note, v.verified_at,
              s.id AS source_id, s.title AS source_title, s.authority, s.level, s.original_url,
              s.enabled, s.current_version_id
       FROM answer_citations c
@@ -319,6 +320,7 @@ function mapCitation(r: CitationRow): Citation {
     versionLabel: r.version_label,
     applicability: r.applicability,
     applicabilityNote: r.applicability_note,
+    verifiedAt: r.verified_at,
     sourceEnabled: r.enabled === 1,
     isCurrentVersion: r.current_version_id === r.version_id,
     pageStart: r.page_start,

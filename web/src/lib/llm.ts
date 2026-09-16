@@ -16,6 +16,9 @@ import {
   NoObjectGeneratedError,
   Output,
   RetryError,
+  StreamProviderError,
+  streamText,
+  type DeepPartial,
   type JSONValue,
   type LanguageModel,
   type LanguageModelCallOptions,
@@ -220,16 +223,23 @@ interface CallArgs extends LanguageModelCallOptions, RequestOptions {
 // Reuse this single argument object across attempts, including streaming: its
 // signal is the total deadline and SDK retries are off. The caller owns at most
 // one retry across transport and JSON failures, not one of each.
-export function callArgs(resolved: ResolvedTaskModel, system: string, prompt: string, maxOutputTokens: number): CallArgs {
+export function callArgs(
+  resolved: ResolvedTaskModel,
+  system: string,
+  prompt: string,
+  maxOutputTokens: number,
+  abortSignal?: AbortSignal,
+): CallArgs {
   const { def, taskModel, model } = resolved;
   const openaiFamily = def.id === 'openai' || def.id === 'azure';
+  const deadline = AbortSignal.timeout(MODEL_TIMEOUT_MS);
   return {
     model,
     instructions: system,
     prompt,
     maxOutputTokens,
     maxRetries: 0,
-    abortSignal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+    abortSignal: abortSignal === undefined ? deadline : AbortSignal.any([abortSignal, deadline]),
     reasoning: def.supportsEffort && taskModel.effort !== null ? taskModel.effort : undefined,
     providerOptions: openaiFamily ? { openai: { textVerbosity: 'low', store: false } } : undefined,
   };
@@ -261,53 +271,178 @@ function meta(resolved: ResolvedTaskModel, usage: unknown, startedAt: number): L
   };
 }
 
-// One retry budget for the whole operation. A schema/JSON failure can spend it
-// on JSON mode; a retryable transport failure can spend it on the same request.
-// The second attempt never gets another transport or JSON retry. Compatible
-// servers already use JSON mode for Output.object plus local schema validation.
-export async function generateStructured<T>(
-  task: LlmTask,
-  args: { system: string; prompt: string; schema: z.ZodType<T>; maxOutputTokens?: number },
-): Promise<{ output: T; raw: string } & LlmCallMeta> {
-  const resolved = resolveTaskModel(task);
-  const base = callArgs(resolved, args.system, args.prompt, args.maxOutputTokens ?? ANSWER_MAX_OUTPUT_TOKENS);
-  const startedAt = performance.now();
+export interface StructuredArguments<T> {
+  system: string;
+  prompt: string;
+  schema: z.ZodType<T>;
+  maxOutputTokens?: number;
+  abortSignal?: AbortSignal;
+}
+
+export interface StructuredResult<T> extends LlmCallMeta {
+  output: T;
+  raw: string;
+  // The final attempt's actual instructions, including the schema in a JSON
+  // mode retry. The answer keeps this alongside the unchanged source prompt.
+  instructions: string;
+}
+
+type PartialOutputCallback = (partial: unknown) => void;
+type StructuredOutput<T> = Output.Output<T, DeepPartial<T>, never>;
+
+async function streamStructuredAttempt<T>(
+  base: CallArgs,
+  output: StructuredOutput<T>,
+  onPartial: PartialOutputCallback,
+): Promise<{ output: T; raw: string; usage: unknown }> {
+  const attempt = new AbortController();
+  const signal = AbortSignal.any([base.abortSignal, attempt.signal]);
+  let streamFailed = false;
+  let streamError: unknown;
+  const result = streamText({
+    ...base,
+    abortSignal: signal,
+    output,
+    // Never use the SDK's default raw-error logger. Error parts need explicit
+    // tracking: partialOutputStream can reach clean EOF after a provider error.
+    // Omit streamRetries, which otherwise introduces a second retry budget.
+    onError: ({ error }) => {
+      if (!streamFailed) streamError = error;
+      streamFailed = true;
+    },
+  });
+  const reader = result.partialOutputStream.getReader();
+  // These getters start SDK tee consumers. Observe every derived promise now,
+  // not after the partial loop, so an early rejection is always handled.
+  const settled = Promise.allSettled([result.output, result.text, result.usage] as const);
+  let cancellation: Promise<void> | undefined;
+  const cancelReader = () => {
+    cancellation ??= reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener('abort', cancelReader, { once: true });
+  if (signal.aborted) cancelReader();
+  let succeeded = false;
   try {
-    base.abortSignal.throwIfAborted();
+    while (true) {
+      signal.throwIfAborted();
+      const { value, done } = await reader.read();
+      signal.throwIfAborted();
+      if (done) break;
+      onPartial(value);
+    }
+    const [parsed, raw, usage] = await settled;
+    signal.throwIfAborted();
+    if (streamFailed) throw streamError;
+    if (parsed.status === 'rejected') throw parsed.reason;
+    if (raw.status === 'rejected') throw raw.reason;
+    if (usage.status === 'rejected') throw usage.reason;
+    succeeded = true;
+    return { output: parsed.value, raw: raw.value, usage: usage.value };
+  } finally {
+    if (!succeeded) {
+      // Cancel a tee branch only after aborting its underlying SDK request.
+      attempt.abort();
+      cancelReader();
+    }
+    signal.removeEventListener('abort', cancelReader);
+    await cancellation;
+    await settled;
+    reader.releaseLock();
+  }
+}
+
+// Exactly one retry for the entire operation, regardless of transport, streamed
+// provider errors or final JSON/schema failure. The same resolved object owns
+// credentials, model metadata and safe error conversion for every attempt.
+async function structured<T>(
+  resolved: ResolvedTaskModel,
+  args: StructuredArguments<T>,
+  onPartial?: PartialOutputCallback,
+): Promise<StructuredResult<T>> {
+  const base = callArgs(
+    resolved, args.system, args.prompt, args.maxOutputTokens ?? ANSWER_MAX_OUTPUT_TOKENS, args.abortSignal,
+  );
+  const startedAt = performance.now();
+  const schemaOutput = Output.object({ schema: args.schema });
+  let output = schemaOutput;
+  let instructions = base.instructions;
+  let consumerFailed = false;
+  const reportPartial = onPartial === undefined ? undefined : (partial: unknown) => {
     try {
-      const result = await generateText({ ...base, output: Output.object({ schema: args.schema }) });
-      base.abortSignal.throwIfAborted();
-      return { output: result.output, raw: result.text, ...meta(resolved, result.usage, startedAt) };
+      onPartial(partial);
     } catch (err) {
+      consumerFailed = true;
+      throw err;
+    }
+  };
+  try {
+    for (let attempt = 0; ; attempt++) {
       base.abortSignal.throwIfAborted();
-      if (APICallError.isInstance(err) && err.isRetryable) {
-        await delay(2000, undefined, { signal: base.abortSignal });
-        const result = await generateText({ ...base, output: Output.object({ schema: args.schema }) });
+      try {
+        let result: { output: T; raw: string; usage: unknown };
+        if (reportPartial === undefined) {
+          const generated = await generateText({ ...base, instructions, output });
+          result = { output: generated.output, raw: generated.text, usage: generated.usage };
+        } else {
+          result = await streamStructuredAttempt({ ...base, instructions }, output, reportPartial);
+        }
         base.abortSignal.throwIfAborted();
-        return { output: result.output, raw: result.text, ...meta(resolved, result.usage, startedAt) };
+        return { ...result, instructions, ...meta(resolved, result.usage, startedAt) };
+      } catch (err) {
+        base.abortSignal.throwIfAborted();
+        if (attempt >= 1 || consumerFailed) throw err;
+        const root = RetryError.isInstance(err) ? err.lastError : err;
+        if (NoObjectGeneratedError.isInstance(root)) {
+          // Anthropic explicitly ignores schema-less JSON mode. Every other
+          // registered adapter supports it; retain Output.object's final schema
+          // parser even when retrying with Output.json's response format.
+          if (resolved.def.id !== 'anthropic') {
+            const format = await schemaOutput.responseFormat;
+            output = { ...schemaOutput, responseFormat: Output.json().responseFormat };
+            // JSON-mode providers require an explicit JSON instruction, and
+            // removing responseFormat.schema must not also lose field guidance.
+            instructions = `${base.instructions}\n\nGeef uitsluitend een geldig JSON-object met dit schema:\n${JSON.stringify(format?.type === 'json' ? format.schema : undefined)}`;
+          }
+        } else if (
+          (APICallError.isInstance(root) || StreamProviderError.isInstance(root)) && root.isRetryable
+        ) {
+          await delay(2000, undefined, { signal: base.abortSignal });
+        } else {
+          throw err;
+        }
+        // A partial is a replacement snapshot, not a delta. Clear any text
+        // emitted by the failed attempt before the next attempt starts.
+        reportPartial?.(undefined);
       }
-      if (!NoObjectGeneratedError.isInstance(err)) throw err;
     }
-    const result = await generateText({ ...base, output: Output.json() });
-    base.abortSignal.throwIfAborted();
-    const parsed = args.schema.safeParse(result.output);
-    if (!parsed.success) {
-      throw new ModelFailedError(
-        `Aanroep van ${resolved.def.label} · ${resolved.taskModel.model} mislukt: het antwoord voldeed ook na een tweede poging niet aan het verwachte formaat.`,
-      );
-    }
-    return { output: parsed.data, raw: result.text, ...meta(resolved, result.usage, startedAt) };
   } catch (err) {
     throw toModelFailed(resolved, err);
   }
 }
 
+export async function generateStructured<T>(
+  task: LlmTask | ResolvedTaskModel,
+  args: StructuredArguments<T>,
+): Promise<StructuredResult<T>> {
+  return structured(typeof task === 'string' ? resolveTaskModel(task) : task, args);
+}
+
+export async function streamStructured<T>(
+  resolved: ResolvedTaskModel,
+  args: StructuredArguments<T>,
+  onPartial: PartialOutputCallback,
+): Promise<StructuredResult<T>> {
+  return structured(resolved, args, onPartial);
+}
+
 export async function generateTextPlain(
   task: LlmTask,
-  args: { system: string; prompt: string; maxOutputTokens?: number },
+  args: { system: string; prompt: string; maxOutputTokens?: number; abortSignal?: AbortSignal },
 ): Promise<{ text: string } & LlmCallMeta> {
   const resolved = resolveTaskModel(task);
-  const base = callArgs(resolved, args.system, args.prompt, args.maxOutputTokens ?? PLAIN_MAX_OUTPUT_TOKENS);
+  const base = callArgs(
+    resolved, args.system, args.prompt, args.maxOutputTokens ?? PLAIN_MAX_OUTPUT_TOKENS, args.abortSignal,
+  );
   const startedAt = performance.now();
   try {
     // No JSON fallback here, so the SDK may own the single transport retry.

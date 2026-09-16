@@ -1,16 +1,13 @@
-// Retrieval (PLAN.md section 8.4). No model involved: BM25 over passages_fts,
-// bounded in SQL to the corpus that may be cited (source enabled, version
-// ready and current, optional scope), filled in rank order until the character
-// budget, then re-sorted by (source, ordinal) so the model reads every document
-// in its natural order. The same boundary and query serve GET /api/search.
-//
-// Seams for a later hybrid mode: `rankedCandidates` produces the ordered
-// candidate list and `fillBudget` turns any ordered list into the selection, so
-// an embedding ranker only has to merge its own candidates in before filling.
+// Retrieval (PLAN.md sections 8.4–8.5). Both lexical and semantic candidates
+// share the enabled, ready, CURRENT-version SQL boundary and exact source scope.
+// Hybrid mode requires complete, valid embeddings for that bounded corpus;
+// plain search remains synchronous BM25 and never calls a model.
 import { randomUUID } from 'node:crypto';
 import type { Database, Statement } from 'better-sqlite3';
+import { ApiError } from './api';
 import { getDb } from './db';
-import { RETRIEVAL_CHAR_BUDGET } from './settings';
+import { createEmbeddingSession, EMBEDDING_DIMS, readEmbedding, type StoredEmbedding } from './embeddings';
+import { getRetrievalMode, RETRIEVAL_CHAR_BUDGET } from './settings';
 import type { Passage, SearchHit } from './types';
 
 export interface RetrievedPassage {
@@ -28,9 +25,10 @@ export interface RetrievedPassage {
 }
 
 export interface RetrievalOptions {
-  sourceIds?: string[] | null; // non-empty array = restrict to these sources
+  sourceIds?: string[] | null; // absent/null = all; [] = none
   charBudget?: number; // default RETRIEVAL_CHAR_BUDGET
   maxPassages?: number; // default MAX_PASSAGES
+  abortSignal?: AbortSignal;
 }
 
 export const MAX_PASSAGES = 40;
@@ -38,6 +36,8 @@ export const MAX_PASSAGES = 40;
 // run of long passages near the top cannot starve the fill.
 const CANDIDATE_LIMIT = 80;
 const SEARCH_LIMIT = 20;
+const HYBRID_CANDIDATE_LIMIT = 40;
+const RRF_K = 60;
 
 // PLAN.md section 8.4, verbatim.
 const STOP_WORDS: Record<string, true> = Object.fromEntries(
@@ -175,6 +175,12 @@ interface SearchRow extends PassageRow {
   snippet: string;
 }
 
+interface EmbeddingRow {
+  id: string;
+  dims: number | null;
+  vector: Buffer | null;
+}
+
 const PASSAGE_COLUMNS = `
   p.id, p.version_id, v.source_id, s.title AS source_title,
   p.ordinal, p.page_start, p.page_end, p.article, p.section, p.text`;
@@ -196,6 +202,9 @@ interface Statements {
     SearchRow
   >;
   fallback: Statement<[{ scope: string | null; limit: number }], PassageRow>;
+  embeddings: Statement<[{ scope: string | null }], EmbeddingRow>;
+  corpusIds: Statement<[{ scope: string | null }], { id: string }>;
+  byIds: Statement<[{ scope: string | null; ids: string }], PassageRow>;
 }
 
 function prepare(db: Database): Statements {
@@ -223,6 +232,19 @@ function prepare(db: Database): Statements {
       FROM passages p ${CORPUS_JOIN}
       WHERE ${CORPUS_WHERE}
       ORDER BY p.ordinal, s.title, s.id LIMIT @limit`),
+    // LEFT JOIN makes missing coverage visible, instead of silently restricting
+    // semantic ranking to whichever sources happened to have been indexed.
+    embeddings: db.prepare(`
+      SELECT p.id, e.dims, e.vector FROM passages p ${CORPUS_JOIN}
+      LEFT JOIN passage_embeddings e ON e.passage_id = p.id
+      WHERE ${CORPUS_WHERE}`),
+    corpusIds: db.prepare(`
+      SELECT p.id FROM passages p ${CORPUS_JOIN}
+      WHERE ${CORPUS_WHERE}`),
+    byIds: db.prepare(`
+      SELECT ${PASSAGE_COLUMNS}, 0 AS score
+      FROM passages p ${CORPUS_JOIN}
+      WHERE ${CORPUS_WHERE} AND p.id IN (SELECT value FROM json_each(@ids))`),
   };
 }
 
@@ -232,9 +254,9 @@ function stmts(): Statements {
   return (prepared ??= prepare(getDb()));
 }
 
-// Binding for @scope: an empty or missing list means "the whole corpus".
+// Preserve the difference between an absent scope and an explicitly empty one.
 function scopeParam(sourceIds: string[] | null | undefined): string | null {
-  return sourceIds && sourceIds.length > 0 ? JSON.stringify(sourceIds) : null;
+  return sourceIds == null ? null : JSON.stringify([...new Set(sourceIds)]);
 }
 
 function mapRetrieved(r: PassageRow): RetrievedPassage {
@@ -272,10 +294,85 @@ function mapPassage(r: PassageRow): Passage {
 
 // ---- Selection ----------------------------------------------------------------
 
-function rankedCandidates(question: string, scope: string | null): PassageRow[] {
+function rankedCandidates(question: string, scope: string | null, limit = CANDIDATE_LIMIT): PassageRow[] {
   const query = buildFtsQuery(expandTerms(tokenizeQuery(question)));
   if (query === null) return [];
-  return stmts().ranked.all({ query, scope, limit: CANDIDATE_LIMIT });
+  return stmts().ranked.all({ query, scope, limit });
+}
+
+async function hybridCandidates(
+  question: string,
+  scope: string | null,
+  abortSignal?: AbortSignal,
+): Promise<{ rows: PassageRow[]; ftsHits: number }> {
+  // Resolve/capture the key before checking coverage, but do not spend a model
+  // call when the selected corpus still needs indexing.
+  const session = createEmbeddingSession(abortSignal);
+  const sql = stmts();
+  const corpus = sql.embeddings.all({ scope });
+  const vectors = new Map<string, StoredEmbedding>();
+  let missing = 0;
+  let corrupt = 0;
+  for (const row of corpus) {
+    const embedding = readEmbedding(row.dims, row.vector);
+    if (embedding) vectors.set(row.id, embedding);
+    else if (row.dims === null && row.vector === null) missing++;
+    else corrupt++;
+  }
+  if (corpus.length === 0 || missing > 0 || corrupt > 0) {
+    const detail = corpus.length === 0
+      ? 'Er zijn geen passages met embeddings in de geselecteerde, actieve bronnen.'
+      : `De geselecteerde, actieve bronnen bevatten ${missing} passages zonder embeddings en ${corrupt} passages met ongeldige embeddings.`;
+    throw new ApiError(
+      409,
+      vectors.size === 0 ? 'embeddings_required' : 'embeddings_incomplete',
+      `${detail} Bereken de embeddings voor alle geselecteerde bronnen opnieuw via Instellingen, of kies Alleen tekstzoeken (BM25).`,
+    );
+  }
+
+  const [queryVector] = await session.embed([question]);
+  const query = readEmbedding(EMBEDDING_DIMS, queryVector);
+  if (!query) throw new ApiError(502, 'model_failed', 'OpenAI gaf een ongeldige embedding voor de vraag terug.');
+  const normalizedQuery = new Float64Array(EMBEDDING_DIMS);
+  for (let i = 0; i < EMBEDDING_DIMS; i++) {
+    normalizedQuery[i] = query.values.getFloat32(i * 4, true) / query.norm;
+  }
+
+  return getDb().transaction(() => {
+    // No transaction spans a network await. Recheck only IDs, not a second copy
+    // of every BLOB: a changed source scope/current version must never leak the
+    // old semantic snapshot. Immutable passage IDs make this comparison exact.
+    const currentIds = sql.corpusIds.all({ scope });
+    if (currentIds.length !== vectors.size || currentIds.some(({ id }) => !vectors.has(id))) {
+      throw new ApiError(409, 'source_changed', 'De actieve bronnen zijn tijdens het zoeken gewijzigd. Stel de vraag opnieuw.');
+    }
+
+    const semantic = Array.from(vectors, ([id, embedding]) => {
+      let dot = 0;
+      for (let i = 0; i < EMBEDDING_DIMS; i++) {
+        dot += normalizedQuery[i] * embedding.values.getFloat32(i * 4, true);
+      }
+      // Both norms are positive and finite. Clamp floating-point roundoff at
+      // the cosine boundaries; negative similarities remain legitimate ranks.
+      return { id, score: Math.max(-1, Math.min(1, dot / embedding.norm)) };
+    }).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, HYBRID_CANDIDATE_LIMIT);
+    const lexical = rankedCandidates(question, scope, HYBRID_CANDIDATE_LIMIT);
+    const fused = new Map<string, PassageRow>();
+    lexical.forEach((row, index) => fused.set(row.id, { ...row, score: 1 / (RRF_K + index + 1) }));
+    const semanticRanks = new Map(semantic.map(({ id }, index) => [id, index + 1]));
+    const semanticRows = sql.byIds.all({ scope, ids: JSON.stringify(semantic.map(({ id }) => id)) });
+    for (const row of semanticRows) {
+      const rank = semanticRanks.get(row.id)!;
+      const score = 1 / (RRF_K + rank);
+      const existing = fused.get(row.id);
+      if (existing) existing.score += score;
+      else fused.set(row.id, { ...row, score });
+    }
+    return {
+      rows: Array.from(fused.values()).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)),
+      ftsHits: lexical.length,
+    };
+  })();
 }
 
 // Takes candidates in the given order until the character budget or the
@@ -301,19 +398,28 @@ function byDocumentOrder(a: PassageRow, b: PassageRow): number {
   );
 }
 
-export function retrievePassages(
+export async function retrievePassages(
   question: string,
   opts: RetrievalOptions = {},
-): { passages: RetrievedPassage[]; ftsHits: number } {
+): Promise<{ passages: RetrievedPassage[]; ftsHits: number }> {
+  if (opts.sourceIds?.length === 0) return { passages: [], ftsHits: 0 };
+  opts.abortSignal?.throwIfAborted();
   const scope = scopeParam(opts.sourceIds);
   const charBudget = opts.charBudget ?? RETRIEVAL_CHAR_BUDGET;
-  const maxPassages = opts.maxPassages ?? MAX_PASSAGES;
-
-  const candidates = rankedCandidates(question, scope);
-  const rows =
-    candidates.length > 0 ? candidates : stmts().fallback.all({ scope, limit: maxPassages });
+  const maxPassages = opts.maxPassages !== undefined && Number.isFinite(opts.maxPassages)
+    ? Math.max(0, Math.min(Math.floor(opts.maxPassages), MAX_PASSAGES))
+    : MAX_PASSAGES;
+  let rows: PassageRow[];
+  let ftsHits: number;
+  if (getRetrievalMode() === 'hybrid') {
+    ({ rows, ftsHits } = await hybridCandidates(question, scope, opts.abortSignal));
+  } else {
+    const candidates = rankedCandidates(question, scope);
+    ftsHits = candidates.length;
+    rows = candidates.length > 0 ? candidates : stmts().fallback.all({ scope, limit: maxPassages });
+  }
   const selected = fillBudget(rows, charBudget, maxPassages).sort(byDocumentOrder);
-  return { passages: selected.map(mapRetrieved), ftsHits: candidates.length };
+  return { passages: selected.map(mapRetrieved), ftsHits };
 }
 
 const SNIPPET_ESCAPES: Record<string, string> = {
@@ -330,6 +436,7 @@ export function searchPassages(
   q: string,
   opts: { limit?: number; sourceIds?: string[] | null } = {},
 ): SearchHit[] {
+  if (opts.sourceIds?.length === 0) return [];
   const query = buildFtsQuery(expandTerms(tokenizeQuery(q)));
   if (query === null) return [];
   const scope = scopeParam(opts.sourceIds);

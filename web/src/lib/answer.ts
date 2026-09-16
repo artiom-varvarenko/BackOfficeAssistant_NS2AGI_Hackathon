@@ -8,9 +8,18 @@ import { ApiError } from './api';
 import { getDb, newId, nowIso } from './db';
 import { getAnswer } from './dto';
 import { addAnswerEvent } from './events';
-import { ANSWER_MAX_OUTPUT_TOKENS, generateStructured } from './llm';
+import {
+  ANSWER_MAX_OUTPUT_TOKENS,
+  generateStructured,
+  resolveTaskModel,
+  streamStructured,
+  type StructuredArguments,
+  type StructuredResult,
+  type ResolvedTaskModel,
+} from './llm';
 import { retrievePassages, type RetrievedPassage } from './retrieve';
 import { MUNICIPALITY_NAME } from './settings';
+import { jsonObject } from './source-forms';
 import type { Answer, Applicability, CanAnswer, DocType, Level } from './types';
 
 export const AnswerOut = z.object({
@@ -177,8 +186,8 @@ function passageBlock(label: string, p: RetrievedPassage, v: VersionMeta): strin
 export function buildPrompt(
   question: string,
   passages: RetrievedPassage[],
+  meta: Map<string, VersionMeta> = loadVersionMeta(passages.map((p) => p.versionId)),
 ): { system: string; prompt: string; labels: { label: string; passageId: string }[] } {
-  const meta = loadVersionMeta(passages.map((p) => p.versionId));
   const labels: { label: string; passageId: string }[] = [];
   const blocks: string[] = [];
   passages.forEach((p, i) => {
@@ -197,10 +206,11 @@ export function buildPrompt(
 
 // ---- Validation ---------------------------------------------------------------
 
-const MARKER_RE = /\[(\d+)\]/g;
+const MARKER_RE = /\[(-?\d+)\]/g;
 // `[1, 2]` / `[1,2]` → `[1][2]`; `[ 3 ]` → `[3]`.
-const MARKER_LIST_RE = /\[\s*(\d+(?:\s*,\s*\d+)+)\s*\]/g;
-const MARKER_SPACED_RE = /\[\s+(\d+)\s*\]|\[\s*(\d+)\s+\]/g;
+// Recognise negative integers too, so invalid markers can be removed explicitly.
+const MARKER_LIST_RE = /\[\s*(-?\d+(?:\s*,\s*-?\d+)+)\s*\]/g;
+const MARKER_SPACED_RE = /\[\s+(-?\d+)\s*\]|\[\s*(-?\d+)\s+\]/g;
 
 export function normaliseMarkers(text: string): string {
   return text
@@ -252,12 +262,27 @@ export function findVerbatim(passage: string, fragment: string): string | null {
   return passage.slice(hay.offsets[at], hay.offsets[at + needle.length - 1] + 1);
 }
 
-// Sentences: split on . ! ? followed by whitespace, and on line breaks.
+// Move citation suffixes before punctuation in an analysis-only copy. A marker
+// in "Feit. [1] Volgende zin." belongs to the preceding sentence, not the next.
+// Stored prose is never rewritten by this deliberately conservative heuristic.
 export function countUncitedSentences(text: string): number {
+  const analysis = normaliseMarkers(text).replace(
+    /([.!?])\s*((?:\[-?\d+\]\s*)+)/g,
+    (_match, punctuation: string, markers: string) => `${markers.replace(/\s/g, '')}${punctuation} `,
+  );
   let count = 0;
-  for (const raw of text.replace(/([.!?])\s+/g, '$1\n').split('\n')) {
+  for (const raw of analysis.replace(/([.!?])\s+/g, '$1\n').split('\n')) {
     const sentence = raw.trim();
-    if (sentence.length > 40 && !/\[\d+\]/.test(sentence)) count++;
+    if (sentence.length <= 40) continue;
+    let cited = false;
+    for (const match of sentence.matchAll(MARKER_RE)) {
+      const marker = Number(match[1]);
+      if (Number.isSafeInteger(marker) && marker > 0) {
+        cited = true;
+        break;
+      }
+    }
+    if (!cited) count++;
   }
   return count;
 }
@@ -299,6 +324,10 @@ function validate(
   // 2. Citations must point at a label that was sent; first `nummer` wins.
   const kept = new Map<number, { fragment: string; passage: RetrievedPassage }>();
   for (const c of out.citaten) {
+    if (!Number.isSafeInteger(c.nummer) || c.nummer <= 0) {
+      validationWarnings.push('Een bronverwijzing had een ongeldig nummer en werd verwijderd');
+      continue;
+    }
     const label = c.passage.trim().toUpperCase().replace(/^\[|\]$/g, '').replace(/\s+/g, '');
     const passage = byLabel.get(label);
     if (passage === undefined) {
@@ -308,14 +337,17 @@ function validate(
     if (!kept.has(c.nummer)) kept.set(c.nummer, { fragment: c.letterlijk_fragment, passage });
   }
 
-  // 3. Every [n] in the text needs a surviving citation; the marker and the
-  // space before it are stripped otherwise. A citation whose number never
-  // appears in the text is kept: its card is harmless evidence.
-  const stripped = new Set<number>();
-  text = text.replace(/ ?\[(\d+)\]/g, (m, n: string) => {
+  // 3. Every [n] in the text needs a surviving citation. Keep unused evidence
+  // cards, but never let an orphan card count as support for the answer's prose.
+  const stripped = new Set<string>();
+  const usedMarkers = new Set<number>();
+  text = text.replace(/ ?\[(-?\d+)\]/g, (m, n: string) => {
     const marker = Number(n);
-    if (kept.has(marker)) return m;
-    stripped.add(marker);
+    if (Number.isSafeInteger(marker) && marker > 0 && kept.has(marker)) {
+      usedMarkers.add(marker);
+      return m;
+    }
+    stripped.add(n);
     return '';
   });
   for (const marker of stripped) {
@@ -341,9 +373,9 @@ function validate(
     });
   }
 
-  // 5. "ja" without a single validated citation is at best partial.
+  // 5. "ja" without a single validated inline citation is at best partial.
   let canAnswer: CanAnswer = out.kan_beantwoorden;
-  if (canAnswer === 'ja' && citations.length === 0) {
+  if (canAnswer === 'ja' && usedMarkers.size === 0) {
     canAnswer = 'gedeeltelijk';
     validationWarnings.push(
       'Geen enkele bronverwijzing kon worden gevalideerd; controleer het antwoord extra zorgvuldig.',
@@ -395,12 +427,31 @@ export interface GenerateAnswerInput {
   regeneratedFromId?: string | null;
 }
 
-// Validates and normalises the scope: null for "all sources" (also for an
-// empty list), otherwise the deduplicated ids, every one of which must exist.
+// Shared JSON-body shape validation for both answer endpoints. Content and
+// database-backed scope checks live in prepareAnswer, also used by regenerate.
+export function parseAnswerInput(body: unknown): GenerateAnswerInput {
+  const { question, sourceIds } = jsonObject(body);
+  if (
+    sourceIds !== undefined &&
+    sourceIds !== null &&
+    (!Array.isArray(sourceIds) || !sourceIds.every((id) => typeof id === 'string'))
+  ) {
+    throw new ApiError(400, 'invalid_scope', 'De bronselectie moet een lijst van bron-id’s zijn.');
+  }
+  return {
+    question: typeof question === 'string' ? question : '',
+    sourceIds: sourceIds as string[] | null | undefined,
+  };
+}
+
+// Only omitted/null scope means all sources. An explicit empty selection must
+// never silently widen to the entire corpus.
 function checkScope(sourceIds: string[] | null | undefined): string[] | null {
   if (sourceIds === undefined || sourceIds === null) return null;
   const ids = Array.from(new Set(sourceIds));
-  if (ids.length === 0) return null;
+  if (ids.length === 0) {
+    throw new ApiError(400, 'invalid_scope', 'Selecteer minstens één bron of kies alle bronnen.');
+  }
   const found = stmts().sourceCount.get(JSON.stringify(ids));
   if (found === undefined || found.n !== ids.length) {
     throw new ApiError(400, 'invalid_scope', 'De bronselectie bevat een onbekende bron.');
@@ -408,7 +459,26 @@ function checkScope(sourceIds: string[] | null | undefined): string[] | null {
   return ids;
 }
 
-export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer> {
+interface PreparedAnswer {
+  question: string;
+  scope: string[] | null;
+  regeneratedFromId: string | null;
+  passages: RetrievedPassage[];
+  meta: Map<string, VersionMeta>;
+  modelArgs: StructuredArguments<AnswerOutput>;
+  labels: { label: string; passageId: string }[];
+  resolved: ResolvedTaskModel;
+  abortSignal?: AbortSignal;
+}
+
+
+// Resolve input, retrieval and model configuration before opening an SSE
+// response. Both transports receive the same prompt and metadata snapshot.
+export async function prepareAnswer(
+  input: GenerateAnswerInput,
+  abortSignal?: AbortSignal,
+): Promise<PreparedAnswer> {
+  abortSignal?.throwIfAborted();
   const question = input.question.trim();
   if (question.length === 0) {
     throw new ApiError(400, 'invalid_question', 'Geef een vraag van de ondernemer op.');
@@ -426,7 +496,8 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer
     throw new ApiError(404, 'not_found', 'Antwoord niet gevonden.');
   }
 
-  const { passages } = retrievePassages(question, { sourceIds: scope });
+  const { passages } = await retrievePassages(question, { sourceIds: scope, abortSignal });
+  abortSignal?.throwIfAborted();
   if (passages.length === 0) {
     throw new ApiError(
       409,
@@ -434,16 +505,48 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer
       'Geen ingeschakelde en verwerkte bronnen beschikbaar om de vraag mee te beantwoorden.',
     );
   }
-  const { system, prompt, labels } = buildPrompt(question, passages);
-
-  const result = await generateStructured('answer', {
-    system,
-    prompt,
-    schema: AnswerOut,
-    maxOutputTokens: ANSWER_MAX_OUTPUT_TOKENS,
-  });
-
   const meta = loadVersionMeta(passages.map((p) => p.versionId));
+  const { system, prompt, labels } = buildPrompt(question, passages, meta);
+  const resolved = resolveTaskModel('answer');
+  return {
+    question, scope, regeneratedFromId, passages, meta, labels, resolved, abortSignal,
+    modelArgs: { system, prompt, schema: AnswerOut, maxOutputTokens: ANSWER_MAX_OUTPUT_TOKENS, abortSignal },
+  };
+}
+
+
+export async function generateAnswer(input: GenerateAnswerInput, abortSignal?: AbortSignal): Promise<Answer> {
+  const context = await prepareAnswer(input, abortSignal);
+  const result = await generateStructured(context.resolved, context.modelArgs);
+  return completeAnswer(context, result);
+}
+
+export async function streamAnswer(
+  context: PreparedAnswer,
+  onPartial: (antwoord: string) => void,
+): Promise<Answer> {
+  const result = await streamStructured(context.resolved, context.modelArgs, (partial) => {
+    // Partial objects are deliberately unvalidated and must never reach storage.
+    // An undefined partial marks a retry: replace, never concatenate attempts.
+    if (partial === undefined) {
+      onPartial('');
+    } else if (
+      partial !== null &&
+      typeof partial === 'object' &&
+      'antwoord' in partial &&
+      typeof partial.antwoord === 'string'
+    ) {
+      onPartial(partial.antwoord);
+    }
+  });
+  return completeAnswer(context, result);
+}
+
+// One validation/storage boundary for streaming, non-streaming and regenerate.
+// There are no awaits between the cancellation check and the atomic commit.
+function completeAnswer(context: PreparedAnswer, result: StructuredResult<AnswerOutput>): Answer {
+  context.abortSignal?.throwIfAborted();
+  const { question, scope, regeneratedFromId, passages, meta, labels } = context;
   const validated = validate(result.output, passages, labels, meta);
 
   const s = stmts();
@@ -464,7 +567,7 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Answer
       provider: result.provider,
       model: result.model,
       effort: result.effort,
-      prompt_snapshot: `${system}\n\n---\n\n${prompt}`,
+      prompt_snapshot: `${result.instructions}\n\n---\n\n${context.modelArgs.prompt}`,
       passages_sent_json: JSON.stringify(labels),
       raw_response: result.raw,
       usage_json: result.usage === undefined ? null : JSON.stringify(result.usage),

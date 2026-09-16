@@ -78,7 +78,7 @@ export function AppShell({ children, municipality }: { children: ReactNode; muni
       <header className="topbar">
         <div className="topbar-path" aria-label={t('Huidige pagina')}><span className="topbar-section">{t('Werkruimte')}</span><Icon name="chevron-right" size={14} /><strong className="topbar-title">{t(pageTitle(pathname))}</strong></div>
         <div className="topbar-actions">
-          <span className="private-workspace"><Icon name="lock" size={14} />{t('Interne werkruimte')}</span>
+          <span className="private-workspace"><Icon name="civic" size={14} />{t('Gedeelde werkruimte')}</span>
           <LanguageSwitch />
           {settings ? <ModelBadge model={settings.tasks.answer} /> : <span className="muted" role="status">{t(failed ? 'Modelinstellingen niet beschikbaar' : 'Modelinstellingen laden…')}</span>}
         </div>

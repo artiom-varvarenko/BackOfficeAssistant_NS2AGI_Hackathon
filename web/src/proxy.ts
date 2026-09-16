@@ -61,7 +61,9 @@ export async function proxy(request: NextRequest) {
       }
       return NextResponse.next();
     }
-    if (reading && path === '/login') return NextResponse.next();
+    if (reading && path === '/login') {
+      return session ? NextResponse.next() : NextResponse.redirect(new URL('/', context.origin), 307);
+    }
 
     if (session && !hasValidSession(request.cookies.get(SESSION_COOKIE_NAME)?.value, session)) {
       if (path === '/api' || path.startsWith('/api/')) {

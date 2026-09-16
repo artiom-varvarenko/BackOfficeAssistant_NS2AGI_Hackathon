@@ -22,6 +22,7 @@ export const commonTranslations: Record<string, string> = {
   'Dienst lokale economie': 'Local economy department',
   'Huidige pagina': 'Current page',
   'Interne werkruimte': 'Private workspace',
+  'Gedeelde werkruimte': 'Shared workspace',
   'Modelinstellingen niet beschikbaar': 'Model settings unavailable',
   'Modelinstellingen laden…': 'Loading model settings…',
   'Altijd met menselijke beoordeling': 'Always reviewed by a person',

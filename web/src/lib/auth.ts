@@ -20,16 +20,11 @@ export interface RequestSecurityContext {
 const CONFIGURATION_ERROR_MESSAGE = 'De toegangsbeveiliging is niet correct ingesteld. Neem contact op met de beheerder.';
 
 // Read the current environment, not a startup snapshot: either credential
-// changing invalidates existing sessions. An unset password disables the local
-// gate only; declaring a public Cloudflare ingress always requires credentials.
+// changing invalidates existing sessions. An unset password opens the workspace
+// directly, including the public jury deployment on Cloudflare.
 export function getSessionConfig(): SessionConfig | null {
   const password = process.env.APP_PASSWORD;
-  if (!password) {
-    if (process.env.APP_TRUST_PROXY === 'cloudflare') {
-      throw new ApiError(503, 'auth_unavailable', CONFIGURATION_ERROR_MESSAGE);
-    }
-    return null;
-  }
+  if (!password) return null;
   const secret = process.env.APP_SESSION_SECRET ?? '';
   const passwordDigest = createHash('sha256').update(password, 'utf8').digest();
   if (

@@ -2,12 +2,12 @@
 
 This deployment builds the existing React interface as a Vite single-page application and serves it with Cloudflare Workers Static Assets. The Worker routes application requests through one SQLite-backed `JuryWorkspace` Durable Object, which runs the existing Next.js API handlers through small compatibility adapters.
 
-The deployed Worker is `economie-assistent-jury`, available at [economie-assistent-jury.artiomvarvarenko.workers.dev](https://economie-assistent-jury.artiomvarvarenko.workers.dev). The workspace password is recorded locally in ignored `.private/jury-access.txt`. Public login, source search, history, PDF ranges, English browser navigation and a real GPT-5.6 Terra connection test passed. The temporary bootstrap token has been removed from the deployed Worker and private secrets files.
+The deployed Worker is `economie-assistent-jury`, available at [economie-assistent-jury.artiomvarvarenko.workers.dev](https://economie-assistent-jury.artiomvarvarenko.workers.dev). Judges can open this URL and enter directly: no password or account is required. The temporary bootstrap token has been removed from the deployed Worker and private secrets files.
 
 ## Architecture and persistence
 
 - `frontend/` reuses the application components, English/Dutch translations, and styles from `../web/src/`. Vite replaces Next navigation with browser navigation.
-- `worker.ts` applies the existing authentication and request checks before serving protected pages or dispatching API requests. Public ingress supplies the client IP; the Worker reconstructs the trusted origin before forwarding to the Durable Object.
+- `worker.ts` applies request checks before serving pages or dispatching API requests. The jury workspace has no password gate; same-origin checks and request limits remain active. Public ingress supplies the client IP; the Worker reconstructs the trusted origin before forwarding to the Durable Object.
 - `runtime-db.ts` adapts the application's synchronous SQLite calls to Durable Object SQL. Sources, passages, answers, citations, review state, events, embeddings, and settings remain in persistent SQL storage.
 - `runtime-fs.ts` stores immutable PDF files as SQL metadata plus 512 KiB BLOB chunks. The original PDF version IDs remain usable by the existing file and citation routes.
 - `next-server.ts` provides the request URL, cookies, JSON responses, redirects, and proxy continuation used by the API. `source-download.ts` uses bounded public-network fetches with manual redirect validation.
@@ -50,11 +50,11 @@ npx wrangler deploy --secrets-file .private/secrets.json
 `prepare-deploy.cjs` reads the local Next environment and a consistent SQLite snapshot. It writes:
 
 - `.private/workspace.json`: the application rows, including saved model settings and any credentials stored in those settings.
-- `.private/secrets.json`: configured provider credentials, application authentication secrets, and a temporary `BOOTSTRAP_TOKEN`.
+- `.private/secrets.json`: configured provider credentials and a temporary `BOOTSTRAP_TOKEN`.
 - `.dev.vars`: the same secrets for local Wrangler development.
-- `.private/jury-access.txt`: the workspace password, with the URL filled in after a successful import.
+- `.private/jury-access.txt`: direct-access instructions, with the URL filled in after a successful import.
 
-If application authentication secrets are absent locally, preparation generates them. Treat preparation as an initialization step, since running it again replaces these private artifacts. None of these files belong in version control; `.gitignore` excludes `.private/` and `.dev.vars*`. Keep local snapshots, PDF evidence, and access files private as well.
+Preparation leaves the jury workspace public and does not export or generate `APP_PASSWORD` or `APP_SESSION_SECRET`. For a separate password-protected deployment, configure both explicitly; leaving `APP_PASSWORD` unset or empty enables direct access. Treat preparation as an initialization step, since running it again replaces these private artifacts. None of these files belong in version control; `.gitignore` excludes `.private/` and `.dev.vars*`. Keep local snapshots, PDF evidence, and provider credentials private.
 
 Replace the example origin below with the exact HTTPS `workers.dev` origin reported by Wrangler, without a trailing slash:
 
@@ -63,7 +63,7 @@ node bootstrap.cjs https://economie-assistent-jury.YOUR-SUBDOMAIN.workers.dev
 npx wrangler secret delete BOOTSTRAP_TOKEN
 ```
 
-Bootstrap imports rows in batches, uploads the original PDF files, and rebuilds the full-text index. Wait for `Workspace import complete.` before deleting the token. **Delete `BOOTSTRAP_TOKEN` immediately after successful import** so the administrative import endpoints are disabled. Give the jury the deployed URL and workspace password through the intended private channel.
+Bootstrap imports rows in batches, uploads the original PDF files, and rebuilds the full-text index. Wait for `Workspace import complete.` before deleting the token. **Delete `BOOTSTRAP_TOKEN` immediately after successful import** so the administrative import endpoints are disabled. Share the deployed URL with the jury; they can enter directly.
 
 Wrangler can also upload an existing private secrets file separately:
 

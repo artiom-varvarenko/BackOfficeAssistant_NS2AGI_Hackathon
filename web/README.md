@@ -11,7 +11,7 @@ npm run seed
 npm run dev -- --hostname 127.0.0.1
 ```
 
-Open http://localhost:3000. Seeding imports all nine PDFs from `../data` through
+Open http://localhost:3000; no password is required by default. Seeding imports all nine PDFs from `../data` through
 the same ingestion code as uploads. It skips previously imported files by hash;
 it does not erase the database. `DATA_DIR` overrides the PDF directory.
 
@@ -135,10 +135,16 @@ for authentication. It does not change model settings or erase answers.
 deployment endpoints. The separate **Aangepast** provider has its own configured
 base URL and credentials. Keep model credentials server-side.
 
-## Password-gated demo
+## Direct jury access and optional password gate
 
-Set `APP_PASSWORD` and a strong random `APP_SESSION_SECRET` in the server's local
-environment before exposing it. An enabled password without a session secret
+Judges can enter the [live Cloudflare workspace](https://economie-assistent-jury.artiomvarvarenko.workers.dev)
+directly, without a password or account. Local and Cloudflare deployments allow
+direct access when `APP_PASSWORD` is unset or empty. `/login` then redirects to
+the workspace. See [Cloudflare deployment instructions](../cloudflare/README.md)
+for ordinary redeployment; provider API keys remain server-side.
+
+For a separate password-protected deployment, set `APP_PASSWORD` and a strong
+random `APP_SESSION_SECRET` in the server environment. An enabled password without a session secret
 fails closed. Login issues an HttpOnly session cookie with a 12-hour server-side
 expiry; changing the password or secret invalidates existing sessions.
 
@@ -167,11 +173,11 @@ In another terminal:
 cloudflared tunnel --url http://127.0.0.1:3000
 ```
 
-Check that the public address redirects to login and an unauthenticated
-`/api/sources` returns 401 before sharing the URL and password with the jury.
-Stop the connector to close public access.
+Share the public address for direct access. If you enabled the optional password
+gate, confirm that the public address redirects to login and an unauthenticated
+`/api/sources` returns 401. Stop the connector to close tunnel access.
 
-Alternatively, `npm run demo:tunnel` checks the running app's password gate,
+For password-protected tunnels, `npm run demo:tunnel` checks the running app's password gate,
 public redirect, protected APIs/PDFs and loopback binding before opening the
 tunnel. `npm run demo:tunnel -- --check` performs only that preflight. On Windows
 it uses `%LOCALAPPDATA%/EconomieAssistent/bin/cloudflared.exe`; set

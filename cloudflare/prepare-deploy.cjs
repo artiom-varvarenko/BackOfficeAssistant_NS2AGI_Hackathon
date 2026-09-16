@@ -7,10 +7,8 @@ const appRequire = createRequire(path.join(web, 'package.json'));
 appRequire('@next/env').loadEnvConfig(web, false, { info() {}, error() {} });
 const dir = path.join(__dirname, '.private');
 fs.mkdirSync(dir, { recursive: true });
-const secretNames = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'MISTRAL_API_KEY', 'AZURE_OPENAI_API_KEY', 'AZURE_RESOURCE_NAME', 'CUSTOM_LLM_BASE_URL', 'CUSTOM_LLM_API_KEY', 'ELEVENLABS_API_KEY', 'APP_PASSWORD', 'APP_SESSION_SECRET'];
+const secretNames = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'MISTRAL_API_KEY', 'AZURE_OPENAI_API_KEY', 'AZURE_RESOURCE_NAME', 'CUSTOM_LLM_BASE_URL', 'CUSTOM_LLM_API_KEY', 'ELEVENLABS_API_KEY'];
 const secrets = Object.fromEntries(secretNames.filter(name => process.env[name]?.trim()).map(name => [name, process.env[name]]));
-secrets.APP_PASSWORD ||= crypto.randomBytes(18).toString('base64url');
-secrets.APP_SESSION_SECRET ||= crypto.randomBytes(32).toString('hex');
 secrets.BOOTSTRAP_TOKEN = crypto.randomBytes(32).toString('hex');
 fs.writeFileSync(path.join(dir, 'secrets.json'), JSON.stringify(secrets));
 fs.writeFileSync(path.join(__dirname, '.dev.vars'), Object.entries(secrets).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n') + '\n');
@@ -20,5 +18,5 @@ const tables = ['sources', 'source_versions', 'passages', 'answers', 'answer_cit
 const data = db.transaction(() => Object.fromEntries(tables.map(table => [table, db.prepare(`SELECT * FROM ${table}`).all().map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Buffer.isBuffer(value) ? { base64: value.toString('base64') } : value])))])))();
 db.close();
 fs.writeFileSync(path.join(dir, 'workspace.json'), JSON.stringify(data));
-fs.writeFileSync(path.join(dir, 'jury-access.txt'), `Cloudflare URL: pending deployment\nWorkspace password: ${secrets.APP_PASSWORD}\n`);
+fs.writeFileSync(path.join(dir, 'jury-access.txt'), 'Cloudflare URL: pending deployment\nNo password required. Open the URL to enter the workspace.\n');
 console.log(JSON.stringify({ prepared: true, sources: data.sources.length, passages: data.passages.length, answers: data.answers.length, secrets: Object.keys(secrets) }));

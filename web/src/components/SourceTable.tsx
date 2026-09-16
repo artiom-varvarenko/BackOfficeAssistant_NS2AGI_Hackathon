@@ -1,0 +1,11 @@
+import type { Source } from '@/lib/types';
+import { ApplicabilityBadge, Badge, dateLabel, levelLabels } from './Badge';
+const typeLabels = { bylaw: 'Reglement', fee_regulation: 'Retributiereglement', subsidy_regulation: 'Subsidiereglement', royal_decree: 'Koninklijk besluit', brochure: 'Brochure of richtlijn', manual: 'Handleiding', other: 'Andere' };
+export function SourceTable({ sources }: { sources: Source[] }) {
+  if (!sources.length) return <p className="card">Nog geen bronnen toegevoegd.</p>;
+  return <div className="table-scroll"><table><caption className="sr-only">Bronnen met documentstatus en toepasselijkheid</caption><thead><tr><th>Bron</th><th>Niveau en type</th><th>Datum / versie</th><th>Toepasselijkheid</th><th>Verwerking</th><th>Actief</th></tr></thead><tbody>{sources.map((source) => { const v = source.currentVersion; return <tr key={source.id}>
+    <td><strong>{source.title}</strong><p className="muted">{source.authority}</p>{v && <a href={v.pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF ↗</a>}{source.versions.length > 1 && <details><summary>Vorige versies</summary>{source.versions.filter((old) => old.id !== v?.id).map((old) => <p key={old.id}><ApplicabilityBadge value={old.applicability} /> {old.versionLabel} <a href={old.pdfUrl} target="_blank" rel="noopener noreferrer">PDF ↗</a></p>)}</details>}</td>
+    <td><Badge>{levelLabels[source.level]}</Badge><p>{typeLabels[source.docType]}</p></td><td>{v?.documentDate ? dateLabel(v.documentDate) : <Badge tone="amber">Datum onbekend</Badge>}<p className="muted">{v?.versionLabel}</p></td>
+    <td>{v ? <ApplicabilityBadge value={v.applicability} verifiedAt={v.verifiedAt} /> : 'Geen versie'}{v?.applicabilityNote && <p>{v.applicabilityNote}</p>}</td><td>{!v ? 'Geen document' : v.processingStatus === 'ready' ? `Verwerkt · ${v.pageCount ?? '?'} p. · ${v.passageCount} passages` : v.processingStatus === 'processing' ? 'Verwerken…' : `Mislukt: ${v.processingError ?? 'Onbekende fout'}`}{v?.extractionWarning && <p className="notice notice-amber">{v.extractionWarning}</p>}</td><td><Badge tone={source.enabled ? 'green' : 'neutral'}>{source.enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</Badge></td>
+  </tr>; })}</tbody></table></div>;
+}

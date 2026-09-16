@@ -1,0 +1,5 @@
+'use client';
+import { getSettings } from '@/lib/api-client';
+import { ResourceView } from '@/components/ResourceView';
+import { ModelBadge } from '@/components/ModelBadge';
+export default function SettingsPage() { return <><div className="page-heading"><div><h1>Instellingen</h1><p>Modelconfiguratie van de werkruimte.</p></div></div><ResourceView load={getSettings} loading="Instellingen laden…">{(settings) => <><section className="card"><h2>Taalmodel per taak</h2>{(['answer', 'draft', 'summary'] as const).map((task) => <div className="actions" key={task}><strong>{{ answer: 'Antwoord', draft: 'E-mailconcept', summary: 'Samenvatting' }[task]}</strong><ModelBadge model={settings.tasks[task]} /></div>)}<p className="muted">Getest met OpenAI gpt-6-astra. Andere aanbieders worden ondersteund maar zijn niet afgestemd.</p></section><section className="card"><h2>Werkruimte</h2><p>Gemeente {settings.municipality}</p><p>De bewerkbare instellingen volgen bij de volgende integratiestap.</p><a href="/api/settings">Bekijk de JSON API</a></section></>}</ResourceView></>; }

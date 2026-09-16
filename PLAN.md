@@ -237,7 +237,7 @@ export interface Passage {
 export interface Citation {
   marker: number; passageId: string; versionId: string; sourceId: string; sourceTitle: string; authority: string | null;
   level: Level; originalUrl: string | null; documentDate: string | null; versionLabel: string | null;
-  applicability: Applicability; applicabilityNote: string | null; sourceEnabled: boolean; isCurrentVersion: boolean;
+  applicability: Applicability; applicabilityNote: string | null; verifiedAt: string | null; sourceEnabled: boolean; isCurrentVersion: boolean;
   pageStart: number; pageEnd: number; article: string | null; section: string | null;
   quoteText: string; highlight: string | null; pdfUrl: string;
   checked: boolean; checkNote: string | null; checkedAt: string | null;
@@ -295,7 +295,7 @@ export interface ApiError { error: { code: string; message: string } }
 | `POST /api/answers/:id/email-draft` | — | `Answer` | reviewed text + citations only |
 | `GET /api/answers/similar?q=&exclude=` | — | `AnswerListItem[]` ≤ 5 | FTS over past questions |
 | `GET /api/settings` | — | `Settings` | keys masked |
-| `PUT /api/settings` | `{ tasks?: Partial<Record<LlmTask, TaskModel>>, keys?: Partial<Record<ProviderId, string \| null>>, custom?: { baseUrl }, tts?: {...} }` | `Settings` | `null` key deletes the DB key (env stays) |
+| `PUT /api/settings` | `{ tasks?: Partial<Record<LlmTask, TaskModel>>, keys?: Partial<Record<ProviderId, string \| null>>, custom?: { baseUrl: string \| null }, azure?: { resourceName: string \| null }, tts?: {...} }` | `Settings` | `null` key deletes the DB key (env stays); clearing an endpoint setting restores its env fallback |
 | `POST /api/settings/test` | `{ task }` | `{ ok, latencyMs, provider, model, error? }` | tiny structured call `{ ok: true }` |
 | `POST /api/tts` | `{ answerId }` | `audio/mpeg` | tier 3; 409 `no_tts_configured` |
 | `POST /api/sources/:id/summary` | — | `Source` | tier 3; fills `summary` |
@@ -612,3 +612,31 @@ Before submitting: play the YouTube link in a private window; put it in the form
 
 ### Both — closing
 Full pass of section 13 on a freshly seeded `storage/` → last clips → assemble → upload to YouTube (Unlisted or Public) → open the link in a private window → Google Form before **16:30** → laptop (and tunnel URL + password) stays available for the jury.
+
+---
+
+## 17. Restart checkpoint — 2026-09-16
+
+**User-requested stop:** finish the active Part 1 Sprint 2 batch, then stop so the CLI models can be changed. Do not automatically start Sprint 3 or 4.
+
+### Implemented and integrated
+- Part 1 Sprint 1: nine real PDFs, 556 passages, article/page-aware ingestion, model/settings layer and read APIs. Article 13 §3 remains p. 5–6; the retributies Article 4.1 is p. 1.
+- Part 2 Sprint 1 merged into `main` (`0f6198f`), with the `Citation.verifiedAt` fixture catch-up (`a0e8919`). Part 2 Sprint 2 has not been merged in this checkpoint; obtain its branch/commit when resuming.
+- Part 1 Sprint 2: BM25 retrieval, Dutch prompt, structured generation, citation/fragment validation, answer storage, source uploads/metadata/version/applicability writes, review PATCH, settings PUT/test, citation checks, regeneration and e-mail drafts.
+- Integration corrections: null JSON bodies on answer/citation writes now return 400; quote verification permits only case/whitespace normalization; editing approved text clears approval even when the request echoes `status: 'approved'`.
+- Announced shared-contract additions are reflected in sections 6–7: `Citation.verifiedAt`, nullable `custom.baseUrl` and `azure.resourceName`.
+
+### Verification actually performed
+- Full TypeScript check passed. `npm run build -- --webpack` passed, including a rebuild after the final review-state correction.
+- Real HTTP checks against `next start` with an isolated, freshly seeded SQLite database: missing-model 409 without partial storage; real multipart PDF upload; unreadable upload 422 with a visible failed version; source replacement and disable; original PDF/evidence retention; live applicability dates with immutable answer warnings; review/approval/reopening; citation checks and no-op repeats; regeneration links/events; e-mail persistence; state retained across a server restart.
+- Generation, e-mail rewriting, provider test and model-failure paths used a temporary local HTTP model-protocol fixture. These exercise the actual SDK, routes, retrieval, validation and persistence, **not the correctness of a real model's answer**.
+- The merged UI ran with frontend fixtures off: stored citations, highlights, pages and warnings rendered in a browser; a DOM-activated citation checkbox persisted through the real API and updated the progress line. Native automation click/wait helpers were unreliable; do not treat this as a full keyboard/pointer-accessibility pass.
+- Normal `web/storage/` was preserved: 9 sources, 556 passages, 0 answers, 0 settings rows. Temporary verification services/data are separate from it.
+
+### Still required after restart
+1. Supply an LLM key via `web/.env.local` or Instellingen; run real Q1/Q6 and the full Q1–Q9 quality review. **Joint Checkpoint 2 is not signed off** by the synthetic-provider smoke run.
+2. Integrate/review the teammate's Sprint 2 branch and exercise the actual forms/settings/history together. Keep Part 2 ownership with the teammate.
+3. Part 2 Sprint 1's confirmed remaining UI bug: `ReviewCard.tsx` shows the edit-triggered notice after an explicit **Heropenen** of unchanged approved text. Its status transition is correct, but the notice must distinguish reopening from editing. Render the new citation `verifiedAt` in verified badges as well.
+4. Resume Part 1 Sprint 3, then Sprint 4, only after the user resumes work. The direct-search function and source-scope argument already exist as engine groundwork; their later endpoints/UI, hybrid retrieval, summaries, TTS, streaming, login/rate-limit/tunnel work are not completed by this checkpoint.
+
+Local startup after restarting the CLI: `cd web`, then `npm run dev`. Seed only if needed (`npm run seed` is idempotent); do not reset the user's storage.

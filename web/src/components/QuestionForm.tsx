@@ -1,0 +1,7 @@
+'use client';
+import { useRef } from 'react';
+import { exampleQuestions } from '@/lib/fixtures';
+export function QuestionForm({ question, onChange, onSubmit, busy }: { question: string; onChange: (value: string) => void; onSubmit: () => void; busy: boolean }) {
+  const input = useRef<HTMLTextAreaElement>(null);
+  return <form className="card question-card" onSubmit={(event) => { event.preventDefault(); if (!busy && question.trim()) onSubmit(); }}><label className="field" htmlFor="question">Vraag van de ondernemer<textarea id="question" ref={input} placeholder="Plak hier de vraag…" rows={4} value={question} disabled={busy} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); if (!busy && question.trim()) onSubmit(); } }} /></label><div className="question-actions"><span className="muted">Ctrl+Enter om te zoeken</span><button className="primary" type="submit" disabled={busy || !question.trim()}>{busy ? 'Antwoord opstellen…' : 'Zoek antwoord'} <span aria-hidden="true">→</span></button></div><div className="examples"><span className="muted">Probeer een voorbeeld</span>{exampleQuestions.map((example, i) => <button type="button" title={example} disabled={busy} key={example} onClick={() => { onChange(example); input.current?.focus(); }}>{['Vaste standplaats aanvragen', 'Eenmalig op de markt', 'Startpremie voor zelfstandigen'][i]}</button>)}</div></form>;
+}

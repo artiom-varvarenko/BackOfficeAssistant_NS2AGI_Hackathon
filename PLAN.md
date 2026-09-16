@@ -480,7 +480,9 @@ One retry on transport/JSON failure; then 502 `model_failed`. No self-checking l
 | `web/src/app/api/**` | `docs/video-script.md`, one architecture slide |
 | `web/scripts/seed.ts` | |
 
-Git: both push to `main`; `git pull --rebase` before push; messages `p1: …` / `p2: …`.
+Git: both push to `main`; `git pull --rebase` before push; messages `p1: …` / `p2: …`. `git log` is the status board.
+
+**Uneven progress — handover protocol.** The dependency runs one way only: Part 1 never waits for Part 2 (endpoints are tested with `curl`); Part 2 never waits to *build* (every endpoint exists in `api-client.ts` + `fixtures.ts`), only to *integrate*. Whoever is ahead keeps going down their own tier list; when it is exhausted they take items from the other side **only after an explicit chat message ("take X")** — from that message on, the named files belong to the taker and the other side no longer touches them. Good handover candidates: for Part 2 → `GET /api/search`, `GET /api/passages/[id]/context`, `POST /api/sources/from-url`, `GET /api/answers/similar`; for Part 1 → `/logboek`, `/login`, `SearchPanel`, `SourceDetail`. The one who is ahead is also the integrator: tick acceptance items as features land, record video clips, write the script and slide, and run the read-only review of the other side's code. Checkpoints are sync points, not waiting rooms.
 
 ---
 

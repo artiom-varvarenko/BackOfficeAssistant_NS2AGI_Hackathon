@@ -32,7 +32,7 @@ The amber banner identifies fixture mode. The three example chips have fixed exa
 3. Verify model settings load in the shell. API failures must remain visible; there is no automatic fallback to fixtures.
 4. At Checkpoint 2, exercise real question generation and review persistence after the write endpoints arrive. Fixture mode is a temporary Sprint 1 development aid; remove it after integration as the plan specifies.
 
-Remaining Part 2 work: Sprint 2 source-management forms, full history and editable settings; Sprint 3 briefing, email draft, search, context/source details; Sprint 4 source scope, audio, logbook, streaming UI, login and video deliverables. The full end-to-end acceptance checklist cannot be certified before Part 1 is merged.
+The subsequent UI work is documented in [Part 2 — sprints 2–4](part2-sprints2-4.md). The full end-to-end acceptance checklist cannot be certified before Part 1’s write and generation endpoints are merged.
 
 ## Verification
 

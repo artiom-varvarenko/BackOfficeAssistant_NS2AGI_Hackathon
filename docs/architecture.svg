@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Economie-assistent — van vraag naar controleerbaar antwoord</title>
+  <desc id="desc">Medewerker stelt een vraag. De server doorzoekt actieve PDF-passages in SQLite, vraagt het gekozen model om een antwoord, valideert verwijzingen en bewaart het antwoord. De medewerker controleert, past aan en keurt goed. De bronnenbibliotheek, instellingen en het logboek ondersteunen dit proces.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0 L12 6 L0 12 Z" fill="#17634e"/></marker>
+    <style>
+      text{font-family:Arial,Helvetica,sans-serif;fill:#203732}.title{font-size:56px;font-weight:700}.sub{font-size:28px;fill:#596e66}.heading{font-size:30px;font-weight:700}.body{font-size:26px}.small{font-size:23px;fill:#596e66}.box{fill:#fff;stroke:#c9d9cf;stroke-width:2}.arrow{fill:none;stroke:#17634e;stroke-width:4;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1920" height="1080" fill="#f5f7f6"/>
+  <rect x="80" y="72" width="12" height="122" rx="6" fill="#17634e"/>
+  <text x="120" y="122" class="title">Van vraag naar controleerbaar antwoord</text>
+  <text x="120" y="174" class="sub">Economie-assistent · de medewerker controleert en beslist</text>
+
+  <rect x="80" y="290" width="290" height="220" rx="20" class="box"/>
+  <text x="108" y="344" class="heading">1. Vraag</text>
+  <text x="108" y="390" class="body">Nederlandse vraag</text>
+  <text x="108" y="430" class="body">Bronselectie</text>
+  <text x="108" y="476" class="small">Next.js-werkruimte</text>
+
+  <path d="M376 400 H432" class="arrow"/>
+  <rect x="450" y="290" width="290" height="220" rx="20" class="box"/>
+  <text x="478" y="344" class="heading">2. Bronnen zoeken</text>
+  <text x="478" y="390" class="body">Actieve versies</text>
+  <text x="478" y="430" class="body">Passages + pagina's</text>
+  <text x="478" y="476" class="small">SQLite / FTS5</text>
+
+  <path d="M746 400 H802" class="arrow"/>
+  <rect x="820" y="290" width="290" height="220" rx="20" class="box"/>
+  <text x="848" y="344" class="heading">3. Voorstel</text>
+  <text x="848" y="390" class="body">Gekozen taalmodel</text>
+  <text x="848" y="430" class="body">Antwoord + citaten</text>
+  <text x="848" y="476" class="small">AI SDK · per taak</text>
+
+  <path d="M1116 400 H1172" class="arrow"/>
+  <rect x="1190" y="290" width="290" height="220" rx="20" class="box"/>
+  <text x="1218" y="344" class="heading">4. Valideren</text>
+  <text x="1218" y="390" class="body">Markers en quotes</text>
+  <text x="1218" y="430" class="body">Waarschuwingen</text>
+  <text x="1218" y="476" class="small">Opslaan met bronversies</text>
+
+  <path d="M1486 400 H1542" class="arrow"/>
+  <rect x="1560" y="290" width="280" height="220" rx="20" fill="#e2f1e8" stroke="#17634e" stroke-width="2"/>
+  <text x="1588" y="344" class="heading">5. Beoordelen</text>
+  <text x="1588" y="390" class="body">Bewijs controleren</text>
+  <text x="1588" y="430" class="body">Aanpassen / besluiten</text>
+  <text x="1588" y="476" class="small">Kopiëren of afdrukken</text>
+
+  <path d="M595 670 V530" class="arrow"/>
+  <rect x="80" y="690" width="540" height="180" rx="20" class="box"/>
+  <text x="112" y="744" class="heading">Bronnenbibliotheek</text>
+  <text x="112" y="788" class="body">PDF / URL → extractie per pagina</text>
+  <text x="112" y="830" class="small">Versies · toepasselijkheid · passages</text>
+
+  <path d="M965 670 V530" class="arrow"/>
+  <rect x="690" y="690" width="540" height="180" rx="20" class="box"/>
+  <text x="722" y="744" class="heading">Instellingen</text>
+  <text x="722" y="788" class="body">Aanbieder en model per taak</text>
+  <text x="722" y="830" class="small">Sleutels blijven op de server</text>
+
+  <path d="M1700 525 V668" class="arrow"/>
+  <rect x="1300" y="690" width="540" height="180" rx="20" class="box"/>
+  <text x="1332" y="744" class="heading">Geschiedenis en Logboek</text>
+  <text x="1332" y="788" class="body">Antwoord, bewijs en beoordeling</text>
+  <text x="1332" y="830" class="small">Traceerbaar naar de gebruikte versie</text>
+
+  <text x="80" y="970" class="sub">Brongebonden antwoorden</text>
+  <text x="695" y="970" class="sub">Menselijke controle</text>
+  <text x="1310" y="970" class="sub">Onderhoudbare kennis</text>
+  <text x="80" y="1030" class="small">Challenge 2 · Answer Like the Expert</text>
+</svg>

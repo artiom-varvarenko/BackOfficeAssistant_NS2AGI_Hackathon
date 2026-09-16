@@ -1,0 +1,48 @@
+'use client';
+
+import { useId, useState, type FormEvent } from 'react';
+import { updateVersion } from '@/lib/api-client';
+import type { Applicability, Source, SourceVersion } from '@/lib/types';
+import { sourceError, VersionMetadataFields } from './SourceForm';
+
+export function ApplicabilityForm({ source, version, onSaved, onCancel, onStart }: {
+  source: Source; version: SourceVersion; onSaved: (source: Source) => void; onCancel: () => void; onStart?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const groupId = useId();
+  const superseded = version.applicability === 'superseded';
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    const data = new FormData(event.currentTarget);
+    const optional = (name: string) => String(data.get(name) ?? '').trim() || null;
+    const from = optional('validFrom'); const until = optional('validUntil');
+    if (from && until && until < from) { setError('Geldig tot moet op of na Geldig van liggen.'); return; }
+    setBusy(true); setError(''); onStart?.();
+    try {
+      onSaved(await updateVersion(source.id, version.id, {
+        ...(superseded ? {} : { applicability: data.get('applicability') as Applicability }),
+        applicabilityNote: optional('applicabilityNote'), documentDate: optional('documentDate'),
+        versionLabel: optional('versionLabel'), validFrom: from, validUntil: until,
+      }));
+    } catch (failure) { setError(sourceError(failure)); }
+    finally { setBusy(false); }
+  }
+  return <form onSubmit={submit} aria-busy={busy}>
+    <h2>Toepasselijkheid en versiegegevens wijzigen</h2>
+    <p className="muted">De medewerker beoordeelt of deze bron van toepassing is. Een documentdatum is geen bevestiging van geldigheid.</p>
+    <fieldset className="form-fieldset" disabled={busy}>
+      {superseded ? <p>Deze versie is vervangen door een nieuwere versie.</p> : <fieldset className="form-radio-group">
+        <legend>Toepasselijkheid</legend>
+        {([['unverified', 'Niet geverifieerd'], ['verified', 'Geverifieerd'], ['historical', 'Historisch (achtergrond)']] as const).map(([value, label]) =>
+          <label key={value} htmlFor={`${groupId}-${value}`} className="checkbox-label"><input id={`${groupId}-${value}`} type="radio" name="applicability" value={value} defaultChecked={version.applicability === value} />{label}</label>)}
+      </fieldset>}
+      <label className="field">Toelichting<textarea name="applicabilityNote" rows={3} defaultValue={version.applicabilityNote ?? ''} /></label>
+      <VersionMetadataFields version={version} />
+      <div className="actions"><button className="primary" type="submit">{busy ? 'Opslaan…' : 'Opslaan'}</button><button type="button" onClick={onCancel}>Annuleren</button></div>
+    </fieldset>
+    {busy && <p role="status">Toepasselijkheid opslaan…</p>}
+    {error && <p className="notice notice-red" role="alert">Mislukt: {error}</p>}
+  </form>;
+}

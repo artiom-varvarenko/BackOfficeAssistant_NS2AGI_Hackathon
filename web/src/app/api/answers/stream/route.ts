@@ -2,11 +2,13 @@ import type { NextRequest } from 'next/server';
 import { parseAnswerInput, prepareAnswer, streamAnswer } from '@/lib/answer';
 import { ApiError, handle, readJson } from '@/lib/api';
 import { requestLocale } from '@/lib/request-locale';
+import { safeModelErrorMessage } from '@/lib/model-errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const PARTIAL_INTERVAL_MS = 100;
+const HEARTBEAT_INTERVAL_MS = 10_000;
 
 export async function POST(req: NextRequest) {
   return handle(async () => {
@@ -24,13 +26,16 @@ export async function POST(req: NextRequest) {
       start(controller) {
         let closed = false;
         let timer: NodeJS.Timeout | undefined;
+        let heartbeatTimer: NodeJS.Timeout | undefined;
         let pending: string | undefined;
         let lastText: string | undefined;
         let lastSentAt = Number.NEGATIVE_INFINITY;
 
         const cleanup = () => {
           clearTimeout(timer);
+          clearInterval(heartbeatTimer);
           timer = undefined;
+          heartbeatTimer = undefined;
           pending = undefined;
           signal.removeEventListener('abort', close);
         };
@@ -53,6 +58,19 @@ export async function POST(req: NextRequest) {
             // Encode a complete JSON value per SSE event. Embedded newlines and
             // Unicode (including escaped surrogate fragments) stay inside data.
             controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+            return true;
+          } catch {
+            close();
+            cancellation.abort();
+            return false;
+          }
+        };
+        const sendHeartbeat = (): boolean => {
+          if (closed || signal.aborted) return false;
+          try {
+            // Comments flush the response immediately and keep intermediaries
+            // active while a reasoning model has no visible answer text yet.
+            controller.enqueue(encoder.encode(': heartbeat\n\n'));
             return true;
           } catch {
             close();
@@ -85,6 +103,8 @@ export async function POST(req: NextRequest) {
           close();
           return;
         }
+        if (!sendHeartbeat()) return;
+        heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
         const run = async () => {
           try {
             const answer = await streamAnswer(prepared, queuePartial);
@@ -92,6 +112,10 @@ export async function POST(req: NextRequest) {
             // Pending plain partials are discarded when the final answer wins.
             send('final', answer);
           } catch (err) {
+            if (!(err instanceof ApiError)) {
+              const secrets = Object.entries(process.env).filter(([name]) => /KEY|TOKEN|SECRET|PASSWORD/i.test(name)).map(([, value]) => value ?? '');
+              console.error('[answer-completion]', safeModelErrorMessage(err, secrets));
+            }
             if (!closed && !signal.aborted) {
               send('error', err instanceof ApiError
                 ? { code: err.code, message: err.message }
@@ -101,9 +125,9 @@ export async function POST(req: NextRequest) {
             close();
           }
         };
-        // run handles every rejection; neither disconnects nor SDK failures can
-        // enqueue after close or leave an unobserved background promise behind.
-        void run();
+        // The stream owns its startup promise until generation completes. run
+        // handles every rejection and all completion paths clear the heartbeat.
+        return run();
       },
       cancel() {
         cancelStream();

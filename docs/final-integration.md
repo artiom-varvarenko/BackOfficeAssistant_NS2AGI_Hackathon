@@ -1,5 +1,42 @@
 # Final integration and acceptance evidence
 
+## Hosted release — 16 September 2026
+
+The app is deployed at https://economie-assistent-jury.artiomvarvarenko.workers.dev.
+Cloudflare Workers serves the existing interface and API handlers; a SQLite-backed
+Durable Object persists the database and immutable PDFs in 512 KiB chunks.
+This deployment uses neither the laptop tunnel nor ephemeral container storage.
+Nine PDFs, 556 passages, one saved answer and its four citations were imported.
+OpenAI and ElevenLabs credentials are Cloudflare secrets. Temporary bootstrap
+access was revoked after importing the data.
+
+The public deployment passed authentication, source/history reads, full-text
+search, PDF byte-range access and a real OpenAI connection test using
+`gpt-5.6-terra` / `xhigh` (2.3 seconds). This successful hosted call supersedes the
+earlier no-credits dependency recorded below. Model-quality acceptance questions
+and video/submission deliverables remain separate from deployment readiness.
+Chrome also verified the English home page, source library and history on the
+public URL without JavaScript errors.
+
+Local recovery: the previous tunnel configuration had disabled streaming. Local
+operation now uses `APP_STREAMING=on` and `APP_TRUST_PROXY=local`. Real local
+`gpt-5.6-terra` / `xhigh` requests completed in 2.8 seconds (short question) and
+24.1 seconds (market application question), with citations and saved answers.
+The updated production build passed and runs on http://127.0.0.1:3000. The question
+panel now shows elapsed time and waiting/receiving status in Dutch and English.
+SSE sends an immediate heartbeat, keeps the connection alive during reasoning,
+and owns its generation promise through completion. A live Cloudflare request
+using this correction completed with a final saved answer in 11.3 seconds.
+
+The user subsequently requested faster replies. Both saved workspaces and the
+default configuration now use `gpt-5.6-terra` / `medium`. The public workspace was
+also switched from hybrid search to BM25 because none of its 556 imported passages
+had embeddings; hybrid mode correctly rejected questions before generation.
+A real deployed market application answer saved seven citations in 22.4 seconds.
+A separate clean Chrome run displayed the completed answer and six citation cards
+without JavaScript errors in 74.7 seconds. Provider latency still varies; the
+elapsed-time display reports progress without promising a fixed response time.
+
 This is the combined implementation of both laptop branches. It supersedes the
 handoff instructions in `HANDOFF.md` and the alternative candidate notes, while
 retaining those documents as historical evidence.

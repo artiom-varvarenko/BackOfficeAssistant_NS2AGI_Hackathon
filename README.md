@@ -8,6 +8,10 @@ Start with [setup and operation](web/README.md). The implementation contract and
 acceptance questions are in [PLAN.md](PLAN.md); the demo narration is in
 [docs/video-script.md](docs/video-script.md).
 
+The jury deployment is [economie-assistent-jury.artiomvarvarenko.workers.dev](https://economie-assistent-jury.artiomvarvarenko.workers.dev).
+It runs on Cloudflare Workers with persistent SQLite and PDF storage in a Durable
+Object. Deployment and redeployment instructions are in [cloudflare/README.md](cloudflare/README.md).
+
 See [combined integration and validation](docs/final-integration.md) for the
 branch reconciliation, repeatable checks, and real-provider acceptance status.
 

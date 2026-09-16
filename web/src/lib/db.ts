@@ -19,7 +19,7 @@ export function pdfPathForVersion(versionId: string): string {
 
 // Mirrors PLAN.md section 8.1. Passages and citations are never deleted or
 // edited, so answers keep pointing at the exact evidence they were built on.
-const DDL = `
+export const DDL = `
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,

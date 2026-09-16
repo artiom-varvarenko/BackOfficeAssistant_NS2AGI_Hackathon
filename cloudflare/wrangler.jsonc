@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "economie-assistent-jury",
+  "account_id": "bc448d28632b7b1a5f8ae88c6b6df320",
+  "main": "build/worker.js",
+  "compatibility_date": "2026-09-16",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "WORKSPACE", "class_name": "JuryWorkspace" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["JuryWorkspace"] }],
+  "vars": {
+    "APP_TRUST_PROXY": "cloudflare",
+    "APP_STREAMING": "on",
+    "MUNICIPALITY_NAME": "Schoten",
+    "RETRIEVAL_CHAR_BUDGET": "60000",
+    "STORAGE_DIR": "/workspace/storage"
+  },
+  "observability": { "enabled": true }
+}

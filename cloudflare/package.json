@@ -1,0 +1,30 @@
+{
+  "name": "economie-assistent-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:worker": "tsx build-worker.ts",
+    "build:frontend": "vite build",
+    "build": "npm run build:worker && npm run build:frontend",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "@tailwindcss/vite": "latest",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "latest",
+    "esbuild": "latest",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.13",
+    "typescript": "^5",
+    "vite": "latest",
+    "wrangler": "4.132.0"
+  }
+}

@@ -17,6 +17,7 @@ export function QuestionPage({ streamingEnabled = true }: { streamingEnabled?: b
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [busy, setBusy] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [partial, setPartial] = useState('');
   const [error, setError] = useState<ApiClientError | null>(null);
   const [sources, setSources] = useState<Source[] | null>(null);
@@ -27,6 +28,8 @@ export function QuestionPage({ streamingEnabled = true }: { streamingEnabled?: b
   const [cancelled, setCancelled] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const running = useRef(false);
+  const startedAt = useRef(0);
+  const progressPanel = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -38,6 +41,12 @@ export function QuestionPage({ streamingEnabled = true }: { streamingEnabled?: b
     return () => { alive = false; };
   }, [sourceAttempt]);
   useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => {
+    if (!busy) return;
+    progressPanel.current?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt.current) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
 
   const selectedIds = selection === null ? sources?.map((source) => source.id) ?? [] : selection.filter((id) => sources?.some((source) => source.id === id));
   const emptyScope = sources !== null && selectedIds.length === 0;
@@ -56,6 +65,7 @@ export function QuestionPage({ streamingEnabled = true }: { streamingEnabled?: b
     try {
       await reviewNavigation.flush();
       if (abort.signal.aborted) return;
+      startedAt.current = Date.now(); setElapsedSeconds(0);
       setBusy(true); setAnswer(null); setPartial('');
       if (!streamingEnabled) {
         const result = await askQuestion(asked, sourceIds, abort.signal);
@@ -93,7 +103,7 @@ export function QuestionPage({ streamingEnabled = true }: { streamingEnabled?: b
     <details className="direct-search"><summary>{t("Zoek rechtstreeks in de bronnen (zonder AI)")}</summary><SearchPanel /></details>
     <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{busy ? t("Bronnen doorzoeken en antwoord opstellen.") : answer ? t("Het antwoord is klaar. Controleer de bronverwijzingen en beoordeel de tekst.") : ''}</p>
     <div aria-busy={busy}>
-      {busy && <section className="card loading-card"><div><span className="spinner" aria-hidden="true" /><h2>{partial ? t("Antwoord wordt opgesteld…") : t("Bronnen doorzoeken en antwoord opstellen…")}</h2><p className="muted">{t("Dit duurt doorgaans 10–25 s. Bronverwijzingen worden beschikbaar zodra het antwoord is gecontroleerd.")}</p></div>
+      {busy && <section ref={progressPanel} className="card loading-card"><div><span className="spinner" aria-hidden="true" /><div className="section-heading"><h2>{partial ? t("Antwoord wordt opgesteld…") : t("Bronnen doorzoeken en antwoord opstellen…")}</h2><span aria-live="off"><Badge>{t('{seconds} s verstreken', { seconds: elapsedSeconds })}</Badge></span></div><p role="status" aria-live="polite">{partial ? t('Antwoordtekst wordt ontvangen. Bronverwijzingen worden daarna gecontroleerd.') : streamingEnabled ? t('Verzoek verzonden. Wachten op de eerste antwoordtekst.') : t('Verzoek verzonden. Wachten op het gecontroleerde antwoord.')}</p><p className="muted">{t('Uitgebreide redenering kan langer duren voordat er tekst verschijnt. De uiteindelijke tekst en bronverwijzingen verschijnen na controle.')}</p>{elapsedSeconds >= 30 && !partial && <p className="notice notice-amber">{t('We wachten nog op het antwoord van de server. U hoeft de vraag niet opnieuw te verzenden.')}</p>}</div>
         {partial ? <div className="answer-text streaming-text" aria-label={t("Antwoord in opbouw")}>{partial}</div> : <><div className="skeleton" /><div className="skeleton short" /></>}
         <button className="text-button" onClick={cancel}>{t("Weergave stoppen")}</button>
       </section>}

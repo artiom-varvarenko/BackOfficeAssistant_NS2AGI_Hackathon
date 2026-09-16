@@ -240,14 +240,16 @@ export function callArgs(
 ): CallArgs {
   const { def, taskModel, model } = resolved;
   const openaiFamily = def.id === 'openai' || def.id === 'azure';
+  const reasoningBudget = taskModel.effort === 'xhigh' ? 25_000
+    : taskModel.effort && taskModel.effort !== 'none' ? 12_000 : 0;
   const deadline = AbortSignal.timeout(MODEL_TIMEOUT_MS);
   return {
     model,
     instructions: system,
     prompt,
-    // OpenAI counts hidden reasoning against this same cap. Extra-high effort
-    // needs room beyond the short visible-answer budget to finish its answer.
-    maxOutputTokens: openaiFamily && taskModel.effort === 'xhigh' ? Math.max(maxOutputTokens, 25_000) : maxOutputTokens,
+    // OpenAI counts hidden reasoning against the output cap. Reserve room for
+    // reasoning as well as the answer so valid JSON is not cut off and retried.
+    maxOutputTokens: openaiFamily ? Math.max(maxOutputTokens, reasoningBudget) : maxOutputTokens,
     maxRetries: 0,
     abortSignal: abortSignal === undefined ? deadline : AbortSignal.any([abortSignal, deadline]),
     reasoning: def.supportsEffort && taskModel.effort !== null ? taskModel.effort : undefined,

@@ -16,7 +16,7 @@ export const RETRIEVAL_CHAR_BUDGET: number =
   Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : 60000;
 
 export const DEFAULT_TASKS: Record<LlmTask, TaskModel> = {
-  answer: { provider: 'openai', model: 'gpt-5.6-terra', effort: 'xhigh' },
+  answer: { provider: 'openai', model: 'gpt-5.6-terra', effort: 'medium' },
   draft: { provider: 'openai', model: 'gpt-5.6-terra', effort: 'none' },
   summary: { provider: 'openai', model: 'gpt-5.6-luna', effort: 'none' },
 };

@@ -84,4 +84,10 @@ export const questionTranslations: Record<string, string> = {
   'Opnieuw genereren met huidige bronnen': 'Regenerate with current sources',
   'Beperkt tot {n} bron': 'Limited to {n} source',
   'Beperkt tot {n} bronnen': 'Limited to {n} sources',
+  '{seconds} s verstreken': '{seconds} s elapsed',
+  'Antwoordtekst wordt ontvangen. Bronverwijzingen worden daarna gecontroleerd.': 'Receiving answer text. Citations will be checked afterwards.',
+  'Verzoek verzonden. Wachten op de eerste antwoordtekst.': 'Request sent. Waiting for the first answer text.',
+  'Verzoek verzonden. Wachten op het gecontroleerde antwoord.': 'Request sent. Waiting for the validated answer.',
+  'Uitgebreide redenering kan langer duren voordat er tekst verschijnt. De uiteindelijke tekst en bronverwijzingen verschijnen na controle.': 'Extended reasoning can take longer before any text appears. The final answer and citations appear after validation.',
+  'We wachten nog op het antwoord van de server. U hoeft de vraag niet opnieuw te verzenden.': 'Still waiting for the server to respond. You do not need to submit the question again.',
 };

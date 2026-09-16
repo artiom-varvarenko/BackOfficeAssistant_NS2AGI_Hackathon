@@ -46,7 +46,7 @@ const citation = (marker: number, pageStart: number, pageEnd: number, article: s
   marker, passageId: `fixture-passage-${marker}`, versionId: version.id, sourceId: market.id,
   sourceTitle: market.title, authority: market.authority, level: market.level, originalUrl: market.originalUrl,
   documentDate: version.documentDate, versionLabel: version.versionLabel, applicability: 'unverified',
-  applicabilityNote: null, sourceEnabled: true, isCurrentVersion: true, pageStart, pageEnd, article, section,
+  applicabilityNote: null, verifiedAt: null, sourceEnabled: true, isCurrentVersion: true, pageStart, pageEnd, article, section,
   quoteText, highlight: marker === 1 ? 'aanvraagformulier op de website van de gemeente Schoten' : null,
   pdfUrl: `${version.pdfUrl}#page=${pageStart}`, checked: marker === 1, checkNote: null, checkedAt: marker === 1 ? at : null,
 });

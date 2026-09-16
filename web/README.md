@@ -77,7 +77,7 @@ remain part of the same workflow in both languages.
   current sources, copy with source references, create an editable email draft
   or print the officer briefing. Nothing is automatically sent.
 - **Instellingen:** choose provider/model/effort per task and test it. The default
-  answer model is OpenAI `gpt-5.6-terra` with `medium` reasoning for faster replies.
+  answer model is OpenAI `gpt-5.6-luna` with `medium` reasoning for faster replies.
   OpenAI reasoning calls reserve 12,000 output/reasoning tokens (25,000 at extra high) so the
   short visible-answer budget does not cut off reasoning before an answer. Source
   summaries are generated after ingestion when the summary model is configured;

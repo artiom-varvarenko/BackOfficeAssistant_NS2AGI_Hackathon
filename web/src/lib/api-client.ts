@@ -1,14 +1,9 @@
 import type { Answer, AnswerListItem, ApiError, Citation, EventLogItem, LlmTask, Passage, ProviderId, SearchHit, Settings, Source, SourceVersion, TaskModel } from './types';
-import { exampleQuestions, fixtureAnswer, fixtureHistory, fixtureSettings, fixtureSources } from './fixtures';
 
-export const useFixtures = process.env.NEXT_PUBLIC_USE_FIXTURES === '1';
 export class ApiClientError extends Error {
   constructor(public code: string, message: string, public status = 0) { super(message); this.name = 'ApiClientError'; }
 }
 async function response(path: string, init?: RequestInit) {
-  if (useFixtures && init?.method && !['GET', 'HEAD'].includes(init.method.toUpperCase()) && path !== '/api/login') {
-    throw new ApiClientError('fixture_read_only', 'Deze actie vereist de echte service. In de voorbeeldmodus worden geen wijzigingen naar de server gestuurd.');
-  }
   let result: Response;
   try { result = await fetch(path, { ...init, cache: 'no-store' }); }
   catch (error) {
@@ -34,27 +29,26 @@ const segment = encodeURIComponent;
 const answerPath = (id: string) => `/api/answers/${segment(id)}`;
 const sourcePath = (id: string) => `/api/sources/${segment(id)}`;
 export const fileUrl = (versionId: string, page?: number) => `/api/files/${segment(versionId)}${page ? `#page=${page}` : ''}`;
-const clone = <T,>(value: T): T => structuredClone(value);
-const fixtureKey = 'economie-assistent:sprint1:answers';
-function storedAnswers(): Answer[] {
-  const second: Answer = { ...clone(fixtureAnswer), id: 'fixture-answer-2', question: exampleQuestions[2], status: 'rejected', canAnswer: 'nee', generatedAnswer: 'De ingeschakelde bronnen bevatten geen informatie over een startpremie voor nieuwe zelfstandigen in Schoten.', citations: [], gaps: ['Een gemeentelijke regeling voor een startpremie ontbreekt.'], warnings: [], sourcesUsed: 0, createdAt: fixtureHistory[1].createdAt };
-  try { const raw = window.localStorage.getItem(fixtureKey); if (raw) return JSON.parse(raw) as Answer[]; } catch { /* Storage can be unavailable in private browsing. */ }
-  return [clone(fixtureAnswer), second];
-}
-function saveFixture(answer: Answer) {
-  const all = storedAnswers(); const index = all.findIndex((item) => item.id === answer.id);
-  if (index < 0) all.unshift(answer); else all[index] = answer;
-  try { window.localStorage.setItem(fixtureKey, JSON.stringify(all)); }
-  catch { throw new ApiClientError('fixture_storage_unavailable', 'Voorbeeldwijzigingen kunnen niet lokaal worden bewaard. Sta browseropslag toe.'); }
-  return clone(answer);
-}
-function getFixture(id: string) {
-  const answer = storedAnswers().find((item) => item.id === id);
-  if (!answer) throw new ApiClientError('not_found', 'Dit voorbeeldantwoord bestaat niet.', 404);
-  return clone(answer);
+
+export function safeSourceUrl(value: string | null | undefined, allowPdfPath = false): string | null {
+  if (!value) return null;
+  const href = value.trim();
+  if (/[\u0000-\u0020\u007f\\]/.test(href)) return null;
+  if (allowPdfPath) {
+    const local = /^\/api\/files\/([^/?#]+)(?:#page=[1-9]\d*)?$/.exec(href);
+    if (local) {
+      try {
+        if (/^[A-Za-z0-9_-]+$/.test(decodeURIComponent(local[1]))) return href;
+      } catch { return null; }
+    }
+  }
+  try {
+    const url = new URL(href);
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
+  } catch { return null; }
 }
 
-export const getSources = (): Promise<Source[]> => useFixtures ? Promise.resolve(clone(fixtureSources)) : request('/api/sources');
+export const getSources = (): Promise<Source[]> => request('/api/sources');
 export const getSource = (id: string): Promise<Source> => request(sourcePath(id));
 export const getSourcePassages = (id: string): Promise<Passage[]> => request(`${sourcePath(id)}/passages`);
 export const uploadSource = (form: FormData): Promise<Source> => request('/api/sources', { method: 'POST', body: form });
@@ -68,53 +62,17 @@ export const getPassageContext = (id: string): Promise<PassageContext> => reques
 export const searchSources = (q: string): Promise<SearchHit[]> => request(`/api/search?${new URLSearchParams({ q })}`);
 
 export async function askQuestion(question: string, sourceIds?: string[], signal?: AbortSignal): Promise<Answer> {
-  if (!useFixtures) return request('/api/answers', { ...json('POST', { question, ...(sourceIds ? { sourceIds } : {}) }), signal });
-  if (sourceIds) throw new ApiClientError('fixture_scope', 'Bronselectie vereist de echte antwoordservice. De voorbeeldmodus gebruikt vaste antwoorden.');
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  if (!exampleQuestions.includes(question.trim())) throw new ApiClientError('fixture_question', 'De voorbeeldmodus ondersteunt de drie voorbeeldvragen. Schakel de voorbeeldmodus uit om uw eigen vraag te stellen.');
-  const answer = question === exampleQuestions[2] ? getFixture('fixture-answer-2') : clone(fixtureAnswer);
-  answer.id = `fixture-${crypto.randomUUID()}`; answer.question = question; answer.status = 'draft'; answer.reviewedAnswer = null; answer.reviewNote = null; answer.reviewedAt = null;
-  if (question === exampleQuestions[1]) {
-    answer.generatedAnswer = 'Voor een losse standplaats meldt u zich voor de loting om 08.00 uur op de hoek van de Paalstraat en de Rodeborgstraat. U of uw vertegenwoordiger moet aanwezig zijn. [1]\n\nDe vergoeding bedraagt 9,00 euro per marktdag per kavel, inclusief elektriciteit. [2]';
-    answer.citations = [ { ...answer.citations[0], article: 'Artikel 12', section: null, pageStart: 5, pageEnd: 5, highlight: null, quoteText: 'Voorbeeldpassage: loting om 08.00 uur, hoek Paalstraat/Rodeborgstraat; aanwezigheid van de handelaar of vertegenwoordiger vereist.', checked: false, checkedAt: null }, { ...answer.citations[1], sourceId: fixtureSources[1].id, sourceTitle: fixtureSources[1].title, versionId: fixtureSources[1].currentVersion!.id, originalUrl: fixtureSources[1].originalUrl, documentDate: fixtureSources[1].currentVersion!.documentDate, versionLabel: fixtureSources[1].currentVersion!.versionLabel, article: 'Artikel 4.1', section: null, pageStart: 1, pageEnd: 1, pdfUrl: `${fixtureSources[1].currentVersion!.pdfUrl}#page=1`, quoteText: 'Voorbeeldpassage: losse markthandelaar — 9,00 euro per marktdag per kavel; elektriciteit inbegrepen.' } ];
-    answer.gaps = []; answer.canAnswer = 'ja'; answer.sourcesUsed = 2;
-  }
-  answer.createdAt = answer.updatedAt = new Date().toISOString();
-  answer.events = [{ type: 'generated', at: answer.createdAt, detail: 'Voorbeeldantwoord — geen modelaanroep' }];
-  return saveFixture(answer);
+  return request('/api/answers', { ...json('POST', { question, ...(sourceIds === undefined ? {} : { sourceIds }) }), signal });
 }
-export async function getAnswers(): Promise<AnswerListItem[]> {
-  if (!useFixtures) return request('/api/answers');
-  return storedAnswers().map((a) => ({ id: a.id, question: a.question, status: a.status, canAnswer: a.canAnswer, citationCount: a.citations.length, checkedCount: a.citations.filter((c) => c.checked).length, createdAt: a.createdAt }));
-}
-export const getAnswer = async (id: string): Promise<Answer> => useFixtures ? getFixture(id) : request(answerPath(id));
+export const getAnswers = (): Promise<AnswerListItem[]> => request('/api/answers');
+export const getAnswer = (id: string): Promise<Answer> => request(answerPath(id));
 export type ReviewPatch = Partial<Pick<Answer, 'reviewedAnswer' | 'status' | 'reviewNote'>>;
-export async function updateAnswer(id: string, body: ReviewPatch): Promise<Answer> {
-  if (!useFixtures) return request(answerPath(id), json('PATCH', body));
-  const answer = getFixture(id); const at = new Date().toISOString();
-  const edited = body.reviewedAnswer !== undefined && body.reviewedAnswer !== (answer.reviewedAnswer ?? answer.generatedAnswer);
-  const previousStatus = answer.status;
-  Object.assign(answer, body, { updatedAt: at });
-  if (answer.reviewedAnswer === answer.generatedAnswer) answer.reviewedAnswer = null;
-  if (edited) { answer.status = 'draft'; answer.reviewedAt = null; answer.events.push({ type: 'edited', at, detail: null }); }
-  if (body.status && !(edited && previousStatus === 'approved')) {
-    answer.status = body.status; answer.reviewedAt = body.status === 'draft' ? null : at;
-    answer.events.push({ type: body.status === 'draft' ? 'reopened' : body.status, at, detail: body.reviewNote ?? null });
-  }
-  return saveFixture(answer);
-}
-export async function updateCitation(id: string, marker: number, body: Pick<Citation, 'checked'> & Partial<Pick<Citation, 'checkNote'>>): Promise<Answer> {
-  if (!useFixtures) return request(`${answerPath(id)}/citations/${marker}`, json('PATCH', body));
-  const answer = getFixture(id); const citation = answer.citations.find((c) => c.marker === marker);
-  if (!citation) throw new ApiClientError('not_found', 'Bronverwijzing niet gevonden.', 404);
-  Object.assign(citation, body, { checkedAt: body.checked ? new Date().toISOString() : null });
-  answer.updatedAt = new Date().toISOString(); answer.events.push({ type: 'citation_checked', at: answer.updatedAt, detail: `[${marker}] ${body.checked ? 'Gecontroleerd' : 'Controle opgeheven'}` });
-  return saveFixture(answer);
-}
+export const updateAnswer = (id: string, body: ReviewPatch): Promise<Answer> => request(answerPath(id), json('PATCH', body));
+export const updateCitation = (id: string, marker: number, body: Pick<Citation, 'checked'> & Partial<Pick<Citation, 'checkNote'>>): Promise<Answer> => request(`${answerPath(id)}/citations/${marker}`, json('PATCH', body));
 export const regenerateAnswer = (id: string): Promise<Answer> => request(`${answerPath(id)}/regenerate`, json('POST'));
 export const createEmailDraft = (id: string): Promise<Answer> => request(`${answerPath(id)}/email-draft`, json('POST'));
 export const getSimilarAnswers = (q: string, exclude: string): Promise<AnswerListItem[]> => request(`/api/answers/similar?${new URLSearchParams({ q, exclude })}`);
-export const getSettings = (): Promise<Settings> => useFixtures ? Promise.resolve(clone(fixtureSettings)) : request('/api/settings');
+export const getSettings = (): Promise<Settings> => request('/api/settings');
 export interface SettingsPatch {
   tasks?: Partial<Record<LlmTask, TaskModel>>; keys?: Partial<Record<ProviderId, string | null>>;
   custom?: { baseUrl: string | null }; azure?: { resourceName: string | null };
@@ -131,7 +89,7 @@ export const login = async (password: string): Promise<void> => { await response
 
 // Parses SSE frames across arbitrary network boundaries, including CRLF and UTF-8 splits.
 export async function streamAnswer(question: string, handlers: { partial: (text: string) => void; final: (answer: Answer) => void }, sourceIds?: string[], signal?: AbortSignal): Promise<void> {
-  const result = await response('/api/answers/stream', { ...json('POST', { question, ...(sourceIds ? { sourceIds } : {}) }), signal });
+  const result = await response('/api/answers/stream', { ...json('POST', { question, ...(sourceIds === undefined ? {} : { sourceIds }) }), signal });
   if (!result.headers.get('content-type')?.includes('text/event-stream')) {
     throw new ApiClientError('invalid_stream', 'De server gaf geen geldige antwoordstroom terug.');
   }

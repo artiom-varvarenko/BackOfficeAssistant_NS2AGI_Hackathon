@@ -7,6 +7,7 @@
 // Seams for a later hybrid mode: `rankedCandidates` produces the ordered
 // candidate list and `fillBudget` turns any ordered list into the selection, so
 // an embedding ranker only has to merge its own candidates in before filling.
+import { randomUUID } from 'node:crypto';
 import type { Database, Statement } from 'better-sqlite3';
 import { getDb } from './db';
 import { RETRIEVAL_CHAR_BUDGET } from './settings';
@@ -190,7 +191,10 @@ const CORPUS_WHERE = `
 interface Statements {
   exists: Statement<[string], { hit: number }>;
   ranked: Statement<[{ query: string; scope: string | null; limit: number }], PassageRow>;
-  search: Statement<[{ query: string; scope: string | null; limit: number }], SearchRow>;
+  search: Statement<
+    [{ query: string; scope: string | null; limit: number; startMark: string; endMark: string }],
+    SearchRow
+  >;
   fallback: Statement<[{ scope: string | null; limit: number }], PassageRow>;
 }
 
@@ -207,7 +211,7 @@ function prepare(db: Database): Statements {
       ORDER BY score LIMIT @limit`),
     search: db.prepare(`
       SELECT ${PASSAGE_COLUMNS}, bm25(passages_fts) AS score,
-             snippet(passages_fts, 0, '<mark>', '</mark>', '…', 24) AS snippet
+             snippet(passages_fts, 0, @startMark, @endMark, '…', 24) AS snippet
       FROM passages_fts f
       JOIN passages p ON p.id = f.passage_id ${CORPUS_JOIN}
       WHERE passages_fts MATCH @query AND ${CORPUS_WHERE}
@@ -312,18 +316,41 @@ export function retrievePassages(
   return { passages: selected.map(mapRetrieved), ftsHits: candidates.length };
 }
 
-// GET /api/search: the same boundary and query, with a highlighted snippet per
-// hit. No fallback — an empty result is the honest answer to a search.
+const SNIPPET_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+// GET /api/search: same boundary and query, without fallback. Snippet text is
+// HTML-escaped; only the FTS-generated hit markers remain bare <mark> tags.
 export function searchPassages(
   q: string,
   opts: { limit?: number; sourceIds?: string[] | null } = {},
 ): SearchHit[] {
   const query = buildFtsQuery(expandTerms(tokenizeQuery(q)));
   if (query === null) return [];
-  const rows = stmts().search.all({
-    query,
-    scope: scopeParam(opts.sourceIds),
-    limit: opts.limit ?? SEARCH_LIMIT,
-  });
-  return rows.map((r) => ({ passage: mapPassage(r), snippet: r.snippet, score: r.score }));
+  const scope = scopeParam(opts.sourceIds);
+  const limit = opts.limit ?? SEARCH_LIMIT;
+  let startMark: string;
+  let endMark: string;
+  let rows: SearchRow[];
+  do {
+    const nonce = randomUUID();
+    startMark = `${nonce}:start`;
+    endMark = `${nonce}:end`;
+    rows = stmts().search.all({ query, scope, limit, startMark, endMark });
+    // Even literal <mark> in a PDF is source text, not a trusted hit marker.
+    // Check the entire original passage to rule out sentinel collisions.
+  } while (rows.some((r) => r.text.includes(startMark) || r.text.includes(endMark)));
+  return rows.map((r) => ({
+    passage: mapPassage(r),
+    snippet: r.snippet
+      .replace(/[&<>"']/g, (character) => SNIPPET_ESCAPES[character])
+      .replaceAll(startMark, '<mark>')
+      .replaceAll(endMark, '</mark>'),
+    score: r.score,
+  }));
 }

@@ -23,9 +23,9 @@ export function VersionUploadForm({ source, onSaved, onCancel, onFailure, onStar
   }
   return <form onSubmit={submit} aria-busy={busy}>
     <h2>Nieuwe versie toevoegen</h2>
-    <p>De huidige versie van “{source.title}” wordt vervangen. Eerdere antwoorden behouden hun oorspronkelijke bewijs. De nieuwe versie is standaard niet geverifieerd.</p>
+    <p>Na succesvolle verwerking vervangt de nieuwe versie de huidige versie van “{source.title}”. Bij een mislukte upload blijft de huidige versie behouden. Eerdere antwoorden behouden hun oorspronkelijke bewijs. De nieuwe versie is standaard niet geverifieerd.</p>
     <fieldset className="form-fieldset" disabled={busy}>
-      <label className="field">PDF-bestand<input type="file" name="file" accept="application/pdf,.pdf" required /></label>
+      <label className="field">PDF-bestand<input type="file" name="file" accept="application/pdf,.pdf" autoFocus required /></label>
       <VersionMetadataFields />
       <div className="actions"><button className="primary" type="submit">{busy ? 'Verwerken…' : 'Nieuwe versie toevoegen'}</button><button type="button" onClick={onCancel}>Annuleren</button></div>
     </fieldset>

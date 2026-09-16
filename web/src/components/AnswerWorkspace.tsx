@@ -25,6 +25,12 @@ export function AnswerWorkspace({ initialAnswer, history = false }: { initialAns
   const currentAnswer = useRef(initialAnswer);
   const review = useRef<ReviewCardHandle>(null);
   const actionLock = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!answer.regeneratedFromId) return;
@@ -80,10 +86,11 @@ export function AnswerWorkspace({ initialAnswer, history = false }: { initialAns
     try {
       await review.current?.flush();
       await awaitIdle();
+      if (!mounted.current) return;
       const updated = await regenerateAnswer(initialAnswer.id);
-      router.push(`/geschiedenis/${encodeURIComponent(updated.id)}`);
-    } catch (reason) { report(reason); }
-    finally { actionLock.current = false; setAction(null); }
+      if (mounted.current) router.push(`/geschiedenis/${encodeURIComponent(updated.id)}`);
+    } catch (reason) { if (mounted.current) report(reason); }
+    finally { actionLock.current = false; if (mounted.current) setAction(null); }
   }
 
   async function exportJson() {
@@ -92,6 +99,7 @@ export function AnswerWorkspace({ initialAnswer, history = false }: { initialAns
     setAction('export');
     try {
       const saved = await review.current?.flush() ?? await awaitIdle();
+      if (!mounted.current) return;
       const url = URL.createObjectURL(new Blob([JSON.stringify(saved, null, 2)], { type: 'application/json' }));
       const link = document.createElement('a');
       link.href = url;
@@ -101,8 +109,8 @@ export function AnswerWorkspace({ initialAnswer, history = false }: { initialAns
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setError('');
-    } catch (reason) { report(reason); }
-    finally { actionLock.current = false; setAction(null); }
+    } catch (reason) { if (mounted.current) report(reason); }
+    finally { actionLock.current = false; if (mounted.current) setAction(null); }
   }
 
   const busy = pending > 0 || action !== null;

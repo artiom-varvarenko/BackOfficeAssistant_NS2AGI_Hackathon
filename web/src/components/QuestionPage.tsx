@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { ApiClientError, askQuestion, getSources, streamAnswer, useFixtures } from '@/lib/api-client';
+import { ApiClientError, askQuestion, getSources, streamAnswer } from '@/lib/api-client';
 import type { Answer, Source } from '@/lib/types';
 import { AnswerWorkspace } from './AnswerWorkspace';
 import { QuestionForm } from './QuestionForm';
@@ -55,23 +55,18 @@ export function QuestionPage() {
       await reviewNavigation.flush();
       if (abort.signal.aborted) return;
       setBusy(true); setAnswer(null); setPartial('');
-      if (useFixtures) {
-        const result = await askQuestion(asked, sourceIds, abort.signal);
-        if (!abort.signal.aborted) setAnswer(result);
-      } else {
-        try {
-          await streamAnswer(asked, {
-            partial: (text) => { if (!abort.signal.aborted) setPartial(text); },
-            final: (result) => { if (!abort.signal.aborted) { setAnswer(result); setPartial(''); } },
-          }, sourceIds, abort.signal);
-        } catch (e) {
-          // Only a missing route before a stream starts can safely fall back:
-          // retrying a started generation could create duplicate answers/costs.
-          if (e instanceof ApiClientError && (e.status === 404 || e.status === 405)) {
-            const result = await askQuestion(asked, sourceIds, abort.signal);
-            if (!abort.signal.aborted) setAnswer(result);
-          } else throw e;
-        }
+      try {
+        await streamAnswer(asked, {
+          partial: (text) => { if (!abort.signal.aborted) setPartial(text); },
+          final: (result) => { if (!abort.signal.aborted) { setAnswer(result); setPartial(''); } },
+        }, sourceIds, abort.signal);
+      } catch (e) {
+        // Only a missing route before a stream starts can safely fall back:
+        // retrying a started generation could create duplicate answers/costs.
+        if (e instanceof ApiClientError && (e.status === 404 || e.status === 405)) {
+          const result = await askQuestion(asked, sourceIds, abort.signal);
+          if (!abort.signal.aborted) setAnswer(result);
+        } else throw e;
       }
     } catch (e) {
       if (!abort.signal.aborted) setError(e instanceof ApiClientError ? e : new ApiClientError('unknown', e instanceof Error ? e.message : 'Het opstellen is mislukt.'));
@@ -90,11 +85,10 @@ export function QuestionPage() {
     <QuestionForm question={question} onChange={setQuestion} onSubmit={() => void submit()} busy={busy} disabled={emptyScope || reviewNavigation.saving}>
       <details className="source-scope"><summary>Beperk tot bronnen {selection !== null && `(${selectedIds.length} geselecteerd)`}</summary>
         <p className="muted">Standaard worden alle actieve, verwerkte bronnen doorzocht.</p>
-        {!sources ? <p role="status">{sourceError ? 'Bronselectie is niet beschikbaar.' : 'Bronnen laden…'}</p> : sources.length === 0 ? <p>Er zijn geen actieve, verwerkte bronnen. <Link href="/bronnen">Voeg een bron toe of schakel een bron in.</Link></p> : <fieldset disabled={busy || useFixtures} className="scope-options"><legend className="sr-only">Bronnen voor deze vraag</legend>
+        {!sources ? <p role="status">{sourceError ? 'Bronselectie is niet beschikbaar.' : 'Bronnen laden…'}</p> : sources.length === 0 ? <p>Er zijn geen actieve, verwerkte bronnen. <Link href="/bronnen">Voeg een bron toe of schakel een bron in.</Link></p> : <fieldset disabled={busy || reviewNavigation.saving} className="scope-options"><legend className="sr-only">Bronnen voor deze vraag</legend>
           <div className="actions"><button type="button" onClick={() => setSelection(null)}>Alle bronnen</button><button type="button" onClick={() => setSelection([])}>Selectie wissen</button></div>
           {sources.map((source) => <label key={source.id} className="checkbox-label"><input type="checkbox" checked={selectedIds.includes(source.id)} onChange={() => toggleSource(source.id)} />{source.title}</label>)}
         </fieldset>}
-        {useFixtures && <p className="muted">Bronselectie is beschikbaar wanneer de echte antwoordservice is aangesloten.</p>}
         {emptyScope && <p className="notice notice-amber">Selecteer minstens één actieve bron om een vraag te stellen.</p>}
       </details>
     </QuestionForm>

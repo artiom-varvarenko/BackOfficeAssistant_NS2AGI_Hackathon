@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { handle, readJson } from '@/lib/api';
+import { ApiError, handle, readJson } from '@/lib/api';
 import { generateStructured } from '@/lib/llm';
 import { getTaskModel } from '@/lib/settings';
 import { invalidInput, jsonObject } from '@/lib/source-forms';
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     const body = jsonObject(await readJson<unknown>(req));
     const task = body.task;
     if (typeof task !== 'string' || !TASKS.includes(task as LlmTask)) {
-      throw invalidInput(`Ongeldige taak '${String(task)}' (toegestaan: ${TASKS.join(', ')}).`);
+      throw invalidInput(`Ongeldige taak (toegestaan: ${TASKS.join(', ')}).`);
     }
     const configured = getTaskModel(task as LlmTask);
     const startedAt = performance.now();
@@ -47,12 +47,13 @@ export async function POST(req: NextRequest) {
       result = { ok, latencyMs: call.latencyMs, provider: call.provider, model: call.model };
       if (!ok) result.error = 'Het model antwoordde niet met ok=true.';
     } catch (err) {
+      if (!(err instanceof ApiError)) throw err;
       result = {
         ok: false,
         latencyMs: Math.round(performance.now() - startedAt),
         provider: configured.provider,
         model: configured.model,
-        error: err instanceof Error ? err.message : String(err),
+        error: err.message,
       };
     }
     return Response.json(result);

@@ -87,7 +87,7 @@ export async function createSource(buffer: Buffer, source: SourceMeta, version: 
     );
     insertVersion(versionId, sourceId, 1, buffer, version, now);
   })();
-  return finishVersion(buffer, { sourceId, versionId, fileName: version.fileName, eventType: 'created', previousCurrentId: null });
+  return finishVersion(buffer, { sourceId, versionId, fileName: version.fileName, eventType: 'created' });
 }
 
 export async function addVersion(
@@ -96,10 +96,9 @@ export async function addVersion(
   version: Omit<VersionMeta, 'applicability'>,
 ): Promise<IngestResult> {
   const db = getDb();
-  const source = db.prepare('SELECT current_version_id FROM sources WHERE id = ?').get(sourceId) as
-    | { current_version_id: string | null }
-    | undefined;
-  if (!source) throw new ApiError(404, 'not_found', 'Bron niet gevonden.');
+  if (!db.prepare('SELECT 1 FROM sources WHERE id = ?').get(sourceId)) {
+    throw new ApiError(404, 'not_found', 'Bron niet gevonden.');
+  }
   const versionId = newId();
   fs.writeFileSync(pdfPathForVersion(versionId), buffer);
   db.transaction(() => {
@@ -113,7 +112,6 @@ export async function addVersion(
     versionId,
     fileName: version.fileName,
     eventType: 'version_added',
-    previousCurrentId: source.current_version_id,
   });
 }
 
@@ -152,7 +150,6 @@ interface ProcessContext {
   versionId: string;
   fileName: string;
   eventType: 'created' | 'version_added';
-  previousCurrentId: string | null;
 }
 
 type Analysis = { pageCount: number; passages: ChunkPassage[]; warning: string | null } | { error: string };
@@ -209,10 +206,21 @@ async function finishVersion(buffer: Buffer, ctx: ProcessContext): Promise<Inges
     db.prepare(
       `UPDATE source_versions SET processing_status = 'ready', page_count = ?, extraction_warning = ? WHERE id = ?`,
     ).run(pageCount, warning, ctx.versionId);
-    if (ctx.previousCurrentId) {
-      db.prepare(`UPDATE source_versions SET applicability = 'superseded' WHERE id = ?`).run(ctx.previousCurrentId);
-    }
-    db.prepare('UPDATE sources SET current_version_id = ?, updated_at = ? WHERE id = ?').run(ctx.versionId, now, ctx.sourceId);
+    // Extraction is asynchronous: an older upload may finish after a newer
+    // one. Resolve the newest ready version inside this same transaction,
+    // rather than superseding a current-version ID captured before extraction.
+    const current = db.prepare<[string], { id: string }>(
+      `SELECT id FROM source_versions WHERE source_id = ? AND processing_status = 'ready'
+       ORDER BY version_no DESC LIMIT 1`,
+    ).get(ctx.sourceId)!;
+    db.prepare(
+      `UPDATE source_versions SET applicability = 'superseded'
+       WHERE source_id = ? AND id != ? AND processing_status = 'ready' AND applicability != 'superseded'`,
+    ).run(ctx.sourceId, current.id);
+    db.prepare(
+      `UPDATE sources SET summary = CASE WHEN current_version_id IS ? THEN summary ELSE NULL END,
+       current_version_id = ?, updated_at = ? WHERE id = ?`,
+    ).run(current.id, current.id, now, ctx.sourceId);
     logEvent(`${ctx.fileName} · ${pageCount} p. · ${passages.length} passages`);
   })();
 

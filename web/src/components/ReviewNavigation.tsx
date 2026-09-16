@@ -26,11 +26,12 @@ export const useReviewNavigation = () => useContext(ReviewNavigationContext);
 // normal link handler. In-memory fallback still covers client navigation when
 // browser storage is unavailable. Never store keys or generated model prompts.
 export interface ReviewDraft { text: string; note: string; baseText: string; baseNote: string }
-const drafts = new Map<string, ReviewDraft>();
+const drafts = new Map<string, ReviewDraft | null>();
 const draftKey = (id: string) => `economie-assistent:review-draft:${id}`;
 
 export function readReviewDraft(id: string): ReviewDraft | null {
   if (typeof window === 'undefined') return null;
+  if (drafts.has(id)) return drafts.get(id) ?? null;
   try {
     const raw = window.sessionStorage.getItem(draftKey(id));
     if (raw) {
@@ -42,7 +43,7 @@ export function readReviewDraft(id: string): ReviewDraft | null {
 }
 
 export function writeReviewDraft(id: string, draft: ReviewDraft | null) {
-  if (draft) drafts.set(id, draft); else drafts.delete(id);
+  drafts.set(id, draft);
   try {
     if (draft) window.sessionStorage.setItem(draftKey(id), JSON.stringify(draft));
     else window.sessionStorage.removeItem(draftKey(id));
@@ -55,9 +56,26 @@ export function ReviewNavigationProvider({ children }: { children: ReactNode }) 
   const reviews = useRef(new Set<ReviewRegistration>());
   const savingPromise = useRef<Promise<void> | null>(null);
   const navigating = useRef(false);
+  const navigationAttempt = useRef(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { setError(''); }, [pathname]);
+  const invalidateNavigation = useCallback(() => {
+    navigationAttempt.current++;
+    navigating.current = false;
+    // The server request can finish, but no longer owns this page's navigation.
+    savingPromise.current = null;
+    setSaving(false);
+    setError('');
+  }, []);
+  useEffect(() => { invalidateNavigation(); }, [pathname, invalidateNavigation]);
+  useEffect(() => {
+    window.addEventListener('popstate', invalidateNavigation);
+    return () => {
+      window.removeEventListener('popstate', invalidateNavigation);
+      navigationAttempt.current++;
+      savingPromise.current = null;
+    };
+  }, [invalidateNavigation]);
 
   const register = useCallback((review: ReviewRegistration) => {
     reviews.current.add(review);
@@ -70,12 +88,14 @@ export function ReviewNavigationProvider({ children }: { children: ReactNode }) 
     setError('');
     if (!pending.length) return Promise.resolve();
     setSaving(true);
-    const operation = (async () => {
+    const operation: Promise<void> = (async () => {
       for (const review of pending) await review.flush();
     })().catch((reason) => {
-      setError(`Uw beoordeling kon niet worden opgeslagen. U blijft op deze pagina. ${reason instanceof Error ? reason.message : 'Probeer opnieuw.'}`);
+      if (savingPromise.current === operation) setError(`Uw wijzigingen zijn niet afgehandeld. U blijft op deze pagina. ${reason instanceof Error ? reason.message : 'Probeer opnieuw.'}`);
       throw reason;
-    }).finally(() => { savingPromise.current = null; setSaving(false); });
+    }).finally(() => {
+      if (savingPromise.current === operation) { savingPromise.current = null; setSaving(false); }
+    });
     savingPromise.current = operation;
     return operation;
   }, []);
@@ -93,13 +113,19 @@ export function ReviewNavigationProvider({ children }: { children: ReactNode }) 
     event.stopPropagation();
     if (navigating.current) return;
     navigating.current = true;
-    void flush().then(() => router.push(`${destination.pathname}${destination.search}${destination.hash}`)).catch(() => undefined).finally(() => { navigating.current = false; });
+    const attempt = ++navigationAttempt.current;
+    const origin = window.location.href;
+    void flush().then(() => {
+      if (attempt === navigationAttempt.current && window.location.href === origin) router.push(`${destination.pathname}${destination.search}${destination.hash}`);
+    }).catch(() => undefined).finally(() => {
+      if (attempt === navigationAttempt.current) navigating.current = false;
+    });
   }
 
   const value = useMemo(() => ({ register, flush, saving }), [register, flush, saving]);
   return <ReviewNavigationContext.Provider value={value}><div style={{ display: 'contents' }} onClickCapture={capture}>
     {error && <div className="notice notice-red review-navigation-error" role="alert"><p>{error}</p><button type="button" onClick={() => setError('')}>Melding sluiten</button></div>}
-    <span className="sr-only" role="status" aria-live="polite">{saving ? 'Beoordeling opslaan voordat u verdergaat…' : ''}</span>
+    <span className="sr-only" role="status" aria-live="polite">{saving ? 'Wijzigingen controleren voordat u verdergaat…' : ''}</span>
     {children}
   </div></ReviewNavigationContext.Provider>;
 }

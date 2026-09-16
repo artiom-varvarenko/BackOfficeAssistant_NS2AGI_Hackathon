@@ -1,6 +1,10 @@
 'use client';
 import { useRef, type ReactNode } from 'react';
-import { exampleQuestions } from '@/lib/fixtures';
+const exampleQuestions = [
+  'Ik wil een vaste standplaats op de markt in Schoten. Hoe dien ik een aanvraag in?',
+  'Ik wil één keer op zaterdag op de markt staan zonder abonnement. Waar en wanneer moet ik me aanmelden en wat kost dat?',
+  'Welke startpremie kan ik als nieuwe zelfstandige in Schoten aanvragen en hoeveel bedraagt die?',
+];
 export function QuestionForm({ question, onChange, onSubmit, busy, disabled = false, children }: { question: string; onChange: (value: string) => void; onSubmit: () => void; busy: boolean; disabled?: boolean; children?: ReactNode }) {
   const input = useRef<HTMLTextAreaElement>(null);
   return <form className="card question-card" onSubmit={(event) => { event.preventDefault(); if (!busy && !disabled && question.trim()) onSubmit(); }}><label className="field" htmlFor="question">Vraag van de ondernemer<textarea id="question" ref={input} placeholder="Plak hier de vraag…" rows={4} value={question} disabled={busy} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); if (!busy && !disabled && question.trim()) onSubmit(); } }} /></label>{children}<div className="question-actions"><span className="muted">Ctrl+Enter om te zoeken</span><button className="primary" type="submit" disabled={busy || disabled || !question.trim()}>{busy ? 'Antwoord opstellen…' : 'Zoek antwoord'} <span aria-hidden="true">→</span></button></div><div className="examples"><span className="muted">Probeer een voorbeeld</span>{exampleQuestions.map((example, i) => <button type="button" title={example} disabled={busy} key={example} onClick={() => { onChange(example); input.current?.focus(); }}>{['Vaste standplaats aanvragen', 'Eenmalig op de markt', 'Startpremie voor zelfstandigen'][i]}</button>)}</div></form>;

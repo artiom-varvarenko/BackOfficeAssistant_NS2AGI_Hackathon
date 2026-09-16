@@ -33,10 +33,14 @@ export function ProviderKeyRow({ provider, busy, onSave, onDirtyChange }: {
     setError('');
     try {
       if (!remove && custom && endpointChanged && endpoint.trim()) {
-        const url = new URL(endpoint.trim());
-        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-          throw new Error('Gebruik een basis-URL met http(s), zonder inloggegevens, queryparameters of fragment. Vul de API-sleutel in het aparte sleutelveld in.');
+        let url: URL | null = null;
+        try { url = new URL(endpoint.trim()); } catch { /* Show the same actionable message for malformed URLs. */ }
+        if (!url || !/^https?:\/\//i.test(endpoint.trim()) || /[\u0000-\u001f\u007f\\?#]/.test(endpoint) || url.username || url.password) {
+          throw new Error('Gebruik een volledige http(s)-basis-URL zonder inloggegevens, queryparameters, fragment, backslashes of controletekens. Vul de API-sleutel in het aparte sleutelveld in.');
         }
+      }
+      if (!remove && azure && endpointChanged && endpoint.trim() && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(endpoint.trim())) {
+        throw new Error('Vul alleen de Azure-resourcenaam in: 1–63 letters, cijfers of koppeltekens, met een letter of cijfer aan het begin en einde. Gebruik niet de volledige URL.');
       }
       const patch: SettingsPatch = remove ? { keys: { [provider.id]: null } } : {
         ...(key.trim() ? { keys: { [provider.id]: key.trim() } } : {}),
@@ -61,8 +65,8 @@ export function ProviderKeyRow({ provider, busy, onSave, onDirtyChange }: {
         <input type={custom ? 'url' : 'text'} value={endpoint} disabled={busy} autoCapitalize="none" spellCheck={false} placeholder={custom ? 'https://uw-server.example/v1' : 'naam-van-uw-resource'} onChange={(event) => { setEndpoint(event.target.value); setMessage(''); setError(''); }} />
       </label>}
     </div>
-    {custom && <p className="muted">Een lokale OpenAI-compatibele server kan zonder sleutel werken. Laat de nieuwe sleutel leeg om de bestaande sleutel te behouden.</p>}
-    {azure && <p className="muted">Vul alleen de resourcenaam in. Kies de implementatienaam als model bij de taak.</p>}
+    {custom && <p className="muted">Een lokale OpenAI-compatibele server kan zonder sleutel werken. Laat de nieuwe sleutel leeg om de bestaande sleutel te behouden. Maak de basis-URL leeg om de instelling uit de omgeving te gebruiken.</p>}
+    {azure && <p className="muted">Vul alleen de resourcenaam in. Kies de implementatienaam als model bij de taak. Maak de resourcenaam leeg om de instelling uit de omgeving te gebruiken.</p>}
     <div className="actions">
       <button type="button" disabled={busy || !changed} onClick={() => void save(false)}>Opslaan</button>
       <button type="button" className="danger-button" disabled={busy || provider.keySource !== 'db'} onClick={() => void save(true)}>Verwijderen</button>

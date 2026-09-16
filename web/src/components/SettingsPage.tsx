@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { embedSource, getAnswers, getSettings, getSources, readAnswerAloud, testSettings, updateSettings, useFixtures, type SettingsPatch } from '@/lib/api-client';
+import { embedSource, getAnswers, getSettings, getSources, readAnswerAloud, testSettings, updateSettings, type SettingsPatch } from '@/lib/api-client';
 import type { LlmTask, ProviderId, Settings, TaskModel } from '@/lib/types';
 import { Badge } from './Badge';
 import { ProviderKeyRow } from './ProviderKeyRow';
 import { ResourceView } from './ResourceView';
+import { useReviewNavigation } from './ReviewNavigation';
 import { TaskModelRow, type ModelTestResult } from './TaskModelRow';
 import { useToast } from './Toast';
 
@@ -24,15 +25,36 @@ function SettingsEditor({ initialSettings, retrievalBudget }: { initialSettings:
   const [settings, setSettings] = useState(initialSettings);
   const [busy, setBusy] = useState(false);
   const [pendingProviders, setPendingProviders] = useState<Partial<Record<ProviderId, boolean>>>({});
+  const [pendingTts, setPendingTts] = useState(false);
   const locked = useRef(false);
   const toast = useToast();
+  const navigation = useReviewNavigation();
+  const pendingCredentials = Object.values(pendingProviders).some(Boolean) || pendingTts;
+  const navigationState = useRef({ pendingCredentials, busy });
+  navigationState.current = { pendingCredentials, busy };
   const providerChanged = useCallback((provider: ProviderId, dirty: boolean) => {
     setPendingProviders((previous) => previous[provider] === dirty ? previous : { ...previous, [provider]: dirty });
   }, []);
 
+  useEffect(() => navigation.register({
+    needsSave: () => navigationState.current.pendingCredentials || navigationState.current.busy,
+    flush: async () => {
+      if (locked.current) throw new Error('Wacht tot de huidige instellingenbewerking voltooid is.');
+      if (navigationState.current.pendingCredentials && !window.confirm('Er zijn niet-opgeslagen sleutels, verbindingsgegevens of spraakinstellingen. Deze invoer wordt niet hersteld. Wilt u de wijzigingen weggooien en deze pagina verlaten?')) {
+        throw new Error('Uw invoer is behouden. Sla de instellingen op of bevestig bij het verlaten dat u de wijzigingen wilt weggooien.');
+      }
+    },
+  }), [navigation.register]);
+
+  useEffect(() => {
+    if (!pendingCredentials && !busy) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [pendingCredentials, busy]);
+
   const run: RunOperation = async (operation) => {
     if (locked.current) throw new Error('Wacht tot de huidige bewerking voltooid is.');
-    if (useFixtures) throw new Error('Wijzig instellingen in de echte werkruimte. De voorbeeldmodus slaat geen sleutels op.');
     locked.current = true;
     setBusy(true);
     try { return await operation(); }
@@ -54,21 +76,20 @@ function SettingsEditor({ initialSettings, retrievalBudget }: { initialSettings:
     if (saveFirst) await persist({ tasks: { [task]: model } });
     return testSettings(task);
   });
-  const disabled = busy || useFixtures;
 
   return <>
-    {useFixtures && <p className="notice notice-amber">De instellingen zijn alleen-lezen in de voorbeeldmodus. Schakel de voorbeeldmodus uit om de werkruimte te configureren.</p>}
     <section className="card"><h2>Taalmodel per taak</h2>
       <p className="muted">Elke taak gebruikt een eigen model. Een test gebruikt de opgeslagen sleutel en kan kosten bij de aanbieder veroorzaken. Sla nieuwe sleutels hieronder eerst op.</p>
-      {(['answer', 'draft', 'summary'] as const).map((task) => <TaskModelRow key={task} task={task} saved={settings.tasks[task]} providers={settings.providers} pendingProviders={pendingProviders} busy={disabled} onSave={saveTask} onTest={testTask} />)}
+      {(['answer', 'draft', 'summary'] as const).map((task) => <TaskModelRow key={task} task={task} saved={settings.tasks[task]} providers={settings.providers} pendingProviders={pendingProviders} busy={busy} onSave={saveTask} onTest={testTask} />)}
     </section>
     <section className="card"><h2>API-sleutels per aanbieder</h2>
       <p className="muted">Sleutels worden alleen op de server bewaard. Opgeslagen sleutels worden uitsluitend gemaskeerd naar de browser teruggestuurd. Verwijderen wist de opgeslagen sleutel; een sleutel uit de omgeving blijft beschikbaar.</p>
       <p className="muted">Dit prototype bewaart ingevoerde sleutels onversleuteld in de lokale database.</p>
-      {settings.providers.map((provider) => <ProviderKeyRow key={provider.id} provider={provider} busy={disabled} onSave={save} onDirtyChange={providerChanged} />)}
+      <p className="muted">Sla nieuwe sleutels en verbindingsgegevens op voordat u verdergaat. Niet-opgeslagen invoer wordt niet in de browser bewaard en kan na Vorige of Vernieuwen niet worden hersteld.</p>
+      {settings.providers.map((provider) => <ProviderKeyRow key={provider.id} provider={provider} busy={busy} onSave={save} onDirtyChange={providerChanged} />)}
     </section>
-    <TtsSettings settings={settings.tts} busy={disabled} openaiPending={Boolean(pendingProviders.openai)} save={save} run={run} persist={persist} />
-    <RetrievalSettings settings={settings.retrieval} busy={disabled} openaiPending={Boolean(pendingProviders.openai)} save={save} run={run} />
+    <TtsSettings settings={settings.tts} busy={busy} openaiPending={Boolean(pendingProviders.openai)} save={save} run={run} persist={persist} onDirtyChange={setPendingTts} />
+    <RetrievalSettings settings={settings.retrieval} busy={busy} openaiPending={Boolean(pendingProviders.openai)} save={save} run={run} />
     <section className="card"><h2>Werkruimte</h2>
       <dl className="metadata-list"><dt>Gemeente</dt><dd>{settings.municipality}</dd><dt>Zoekbudget</dt><dd>{new Intl.NumberFormat('nl-BE').format(retrievalBudget)} tekens aan bronpassages per vraag</dd><dt>Geteste configuratie</dt><dd>{settings.testedConfiguration}</dd></dl>
       <p className="muted">De gemeente en het zoekbudget worden door de beheerder ingesteld.</p>
@@ -77,8 +98,8 @@ function SettingsEditor({ initialSettings, retrievalBudget }: { initialSettings:
   </>;
 }
 
-function TtsSettings({ settings, busy, openaiPending, save, run, persist }: {
-  settings: Settings['tts']; busy: boolean; openaiPending: boolean; save: SaveSettings; run: RunOperation; persist: SaveSettings;
+function TtsSettings({ settings, busy, openaiPending, save, run, persist, onDirtyChange }: {
+  settings: Settings['tts']; busy: boolean; openaiPending: boolean; save: SaveSettings; run: RunOperation; persist: SaveSettings; onDirtyChange: (dirty: boolean) => void;
 }) {
   const [provider, setProvider] = useState(settings.provider);
   const [voice, setVoice] = useState(settings.voiceId ?? '');
@@ -94,6 +115,7 @@ function TtsSettings({ settings, busy, openaiPending, save, run, persist }: {
   const dirty = provider !== settings.provider || voice.trim() !== (settings.voiceId ?? '') || key.trim().length > 0;
   const patch: SettingsPatch = { tts: { provider, voiceId: voice.trim() || null, ...(key.trim() ? { key: key.trim() } : provider !== settings.provider ? { key: null } : {}) } };
 
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
   useEffect(() => { if (audioUrl) void audio.current?.play().catch(() => undefined); }, [audioUrl]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -115,7 +137,13 @@ function TtsSettings({ settings, busy, openaiPending, save, run, persist }: {
     setMessage(''); setError(''); setMissingAnswer(false); setTesting(true); setAudioUrl(null);
     try {
       await run(async () => {
-        if (dirty) { await persist(patch); setKey(''); }
+        if (provider === 'openai' && openaiPending) throw new Error('Sla eerst uw nieuwe OpenAI-sleutel op om het voorlezen te proberen.');
+        if (dirty) {
+          const updated = await persist(patch);
+          setProvider(updated.tts.provider);
+          setVoice(updated.tts.voiceId ?? '');
+          setKey('');
+        }
         const answers = await getAnswers();
         const latest = answers.filter((answer) => answer.status === 'approved').sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
         if (!mounted.current) return;
@@ -124,9 +152,9 @@ function TtsSettings({ settings, busy, openaiPending, save, run, persist }: {
         if (!mounted.current) return;
         setAudioUrl(URL.createObjectURL(blob));
         setSampleQuestion(latest.question);
-        setMessage('De spraaktest is klaar. Beluister het antwoord hieronder.');
+        setMessage('Het goedgekeurde antwoord staat klaar om te beluisteren.');
       });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'De spraaktest is mislukt.'); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Proefbeluisteren is mislukt. Controleer de spraakaanbieder, sleutel en stem-ID en probeer opnieuw.'); }
     finally { setTesting(false); }
   }
 
@@ -137,11 +165,11 @@ function TtsSettings({ settings, busy, openaiPending, save, run, persist }: {
       <label className="field">Nieuwe spraaksleutel<input type="password" value={key} disabled={busy || provider === 'none'} autoComplete="new-password" autoCapitalize="none" spellCheck={false} placeholder="Leeg laten om de bestaande sleutel te behouden" onChange={(event) => { setKey(event.target.value); changed(); }} /></label>
     </div>
     <p className="muted">OpenAI kan de opgeslagen OpenAI-sleutel gebruiken. Een aparte spraaksleutel heeft voorrang. Bij OpenAI is de standaardstem alloy; bij ElevenLabs vult u een stem-ID in.</p>
-    <p className="muted">De test leest het meest recente goedgekeurde antwoord voor en kan kosten veroorzaken. De audiotekst wordt naar de gekozen spraakaanbieder gestuurd.</p>
-    <div className="actions"><button type="button" disabled={busy || !dirty} onClick={() => void store(false)}>Opslaan</button><button type="button" className="danger-button" disabled={busy || !settings.hasKey} onClick={() => void store(true)}>Eigen spraaksleutel wissen</button><button type="button" disabled={busy || provider === 'none' || (provider === 'elevenlabs' && !voice.trim()) || (provider === 'openai' && openaiPending)} onClick={() => void test()}>{testing ? 'Testen…' : dirty ? 'Opslaan en testen' : 'Test'}</button></div>
-    {provider === 'openai' && openaiPending && <p className="muted">Sla eerst uw nieuwe OpenAI-sleutel op om de spraaktest uit te voeren.</p>}
-    {missingAnswer && <p className="notice notice-amber">Keur eerst een antwoord goed om het voorlezen te testen. <Link href="/geschiedenis">Open de geschiedenis</Link>.</p>}
-    {audioUrl && <div><p>Testantwoord: {sampleQuestion}</p><audio ref={audio} controls src={audioUrl} aria-label="Spraaktest van het goedgekeurde antwoord" /></div>}
+    <p className="muted">Proefbeluisteren leest het meest recente goedgekeurde antwoord voor en kan kosten veroorzaken. De audiotekst wordt naar de gekozen spraakaanbieder gestuurd.</p>
+    <div className="actions"><button type="button" disabled={busy || !dirty} onClick={() => void store(false)}>Opslaan</button><button type="button" className="danger-button" disabled={busy || !settings.hasKey} onClick={() => void store(true)}>Eigen spraaksleutel wissen</button><button type="button" disabled={busy || provider === 'none' || (provider === 'elevenlabs' && !voice.trim()) || (provider === 'openai' && openaiPending)} onClick={() => void test()}>{testing ? 'Audio voorbereiden…' : dirty ? 'Opslaan en proefbeluisteren' : 'Proefbeluisteren'}</button></div>
+    {provider === 'openai' && openaiPending && <p className="muted">Sla eerst uw nieuwe OpenAI-sleutel op om het voorlezen te proberen.</p>}
+    {missingAnswer && <p className="notice notice-amber">Er is nog geen goedgekeurd antwoord om te beluisteren. Keur eerst een antwoord goed. <Link href="/geschiedenis">Open de geschiedenis</Link>.</p>}
+    {audioUrl && <div><p>Goedgekeurd antwoord op: {sampleQuestion}</p><audio ref={audio} controls src={audioUrl} aria-label="Voorlezen van het goedgekeurde antwoord" /></div>}
     <p className="save-status" role="status" aria-live="polite">{message}</p>
     {error && <p className="notice notice-red" role="alert">{error}</p>}
   </section>;
@@ -168,6 +196,7 @@ function RetrievalSettings({ settings, busy, openaiPending, save, run }: {
     setMessage(''); setError(''); setFailures([]); setEmbedding(true);
     try {
       await run(async () => {
+        if (openaiPending) throw new Error('Sla eerst uw nieuwe OpenAI-sleutel op om embeddings te berekenen.');
         const sources = (await getSources()).filter((source) => source.currentVersion?.processingStatus === 'ready');
         if (!sources.length) { setMessage('Er zijn nog geen verwerkte bronnen. Voeg eerst een PDF toe bij Bronnen.'); return; }
         let embedded = 0;

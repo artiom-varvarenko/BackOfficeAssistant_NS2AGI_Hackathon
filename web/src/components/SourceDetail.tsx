@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
-import { embedSource, generateSourceSummary, getSource, getSourcePassages, updateSource } from '@/lib/api-client';
+import { embedSource, generateSourceSummary, getSource, getSourcePassages, safeSourceUrl, updateSource } from '@/lib/api-client';
 import type { Passage, Source } from '@/lib/types';
 import { ApplicabilityBadge, Badge, dateLabel, levelLabels } from './Badge';
 import { ApplicabilityForm } from './ApplicabilityForm';
@@ -13,12 +13,14 @@ import { useToast } from './Toast';
 
 function PassageCard({ passage }: { passage: Passage }) {
   const [expanded, setExpanded] = useState(false);
+  const pdfUrl = safeSourceUrl(passage.pdfUrl, true);
+  const textId = `passage-${passage.id}-text`;
   return <article className="citation-card" id={`passage-${passage.id}`}>
     <h3>Passage {passage.ordinal} · {passage.article ?? 'Zonder artikelaanduiding'}{passage.section ? ` · ${passage.section}` : ''}</h3>
     <p className="muted">p. {passage.pageStart}{passage.pageEnd !== passage.pageStart ? `–${passage.pageEnd}` : ''}</p>
-    <p className="quote">{expanded || passage.text.length <= 300 ? passage.text : `${passage.text.slice(0, 300)}…`}</p>
-    <div className="source-links"><a href={passage.pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF op p. {passage.pageStart} ↗</a>
-      {passage.text.length > 300 && <button className="text-button" type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>{expanded ? 'Toon minder' : 'Toon volledig'}</button>}
+    <p className="quote" id={textId}>{expanded || passage.text.length <= 300 ? passage.text : `${passage.text.slice(0, 300)}…`}</p>
+    <div className="source-links">{pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF op p. {passage.pageStart} ↗</a> : <span className="muted">PDF niet beschikbaar.</span>}
+      {passage.text.length > 300 && <button className="text-button" type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} aria-controls={textId}>{expanded ? 'Toon minder' : 'Toon volledig'}<span className="sr-only">: passage {passage.ordinal}</span></button>}
     </div>
   </article>;
 }
@@ -59,6 +61,14 @@ export function SourceDetail({ sourceId }: { sourceId: string }) {
   const [operation, setOperation] = useState<'summary' | 'embed' | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [panel, setPanel] = useState<'edit' | 'version' | 'applicability' | null>(null);
+  const panelId = useId();
+  const panelTrigger = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (panel === null) {
+      panelTrigger.current?.focus();
+      panelTrigger.current = null;
+    }
+  }, [panel]);
   const request = useRef(0);
   const refresh = useCallback(async () => {
     const current = ++request.current;
@@ -68,7 +78,7 @@ export function SourceDetail({ sourceId }: { sourceId: string }) {
     finally { if (current === request.current) setRefreshing(false); }
   }, [sourceId]);
   useEffect(() => { void refresh(); return () => { request.current++; }; }, [refresh]);
-  const processing = source?.currentVersion?.processingStatus === 'processing';
+  const processing = source?.versions.some((version) => version.processingStatus === 'processing') ?? false;
   useEffect(() => {
     if (!processing) return;
     const timer = window.setInterval(() => { void refresh(); }, 3000);
@@ -76,6 +86,9 @@ export function SourceDetail({ sourceId }: { sourceId: string }) {
   }, [processing, refresh]);
   function invalidateRefresh() { request.current++; setRefreshing(false); }
   function saved(value: Source) { invalidateRefresh(); setSource(value); setPanel(null); setError(''); setNotice('Bron bijgewerkt.'); toast('Bron bijgewerkt.'); }
+  function openPanel(value: 'edit' | 'version' | 'applicability', trigger: HTMLButtonElement) {
+    panelTrigger.current = trigger; setPanel(value); setError(''); setNotice('');
+  }
   async function toggle() {
     if (!source || busy) return;
     setBusy(true); setError(''); setNotice(''); invalidateRefresh();
@@ -101,9 +114,11 @@ export function SourceDetail({ sourceId }: { sourceId: string }) {
     finally { setBusy(false); setOperation(null); }
   }
   const version = source?.currentVersion;
+  const pdfUrl = safeSourceUrl(version?.pdfUrl, true);
+  const originalUrl = safeSourceUrl(source?.originalUrl);
   return <>
     <p><Link href="/bronnen">← Terug naar Bronnen</Link></p>
-    {loadError && <section className="card notice-red" role="alert"><h1>Bron kon niet worden geladen</h1><p>{loadError}</p><button onClick={() => { void refresh(); }}>Opnieuw proberen</button></section>}
+    {loadError && <section className="card notice-red" role="alert">{source ? <h2>Bron kon niet worden vernieuwd</h2> : <h1>Bron kon niet worden geladen</h1>}<p>{loadError}</p><button onClick={() => { void refresh(); }}>Opnieuw proberen</button></section>}
     {!source && !loadError && <p className="card" role="status">Bron laden…</p>}
     {source && <>
       <div className="page-heading"><div><h1>{source.title}</h1><p>{source.authority ?? 'Uitgevende instantie onbekend'}</p></div><button onClick={() => { void refresh(); }} disabled={refreshing || busy || panel !== null}>{refreshing ? 'Vernieuwen…' : 'Vernieuwen'}</button></div>
@@ -113,11 +128,11 @@ export function SourceDetail({ sourceId }: { sourceId: string }) {
         <p>Toepassingsgebied: {source.scope ?? 'Niet opgegeven'}</p>
         {version && <><p>Versie {version.versionNo} · {version.versionLabel ?? 'Geen versielabel'} · {version.documentDate ? dateLabel(version.documentDate) : 'Datum onbekend'}</p><p>Geldig van: {version.validFrom ? dateLabel(version.validFrom) : 'Niet opgegeven'} · Geldig tot: {version.validUntil ? dateLabel(version.validUntil) : 'Niet opgegeven'}</p>{version.applicabilityNote && <p>Toelichting: {version.applicabilityNote}</p>}</>}
         <SourceProcessingStatus version={version ?? null} />
-        <div className="source-links">{version && <a href={version.pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF ↗</a>}{source.originalUrl && /^https?:\/\//i.test(source.originalUrl) && <a href={source.originalUrl} target="_blank" rel="noopener noreferrer">Originele bron ↗</a>}</div>
-        <div className="actions"><button onClick={() => setPanel('edit')} disabled={busy || panel !== null}>Bewerken</button><button onClick={() => setPanel('version')} disabled={busy || panel !== null}>Nieuwe versie</button>{version && <button onClick={() => setPanel('applicability')} disabled={busy || panel !== null}>Toepasselijkheid wijzigen</button>}<button onClick={toggle} disabled={busy || panel !== null}>{busy ? 'Opslaan…' : source.enabled ? 'Bron uitschakelen' : 'Bron inschakelen'}</button></div>
+        <div className="source-links">{version && (pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF ↗</a> : <span className="muted">PDF niet beschikbaar.</span>)}{source.originalUrl && (originalUrl ? <a href={originalUrl} target="_blank" rel="noopener noreferrer">Originele bron ↗</a> : <span className="muted">Originele bron niet beschikbaar.</span>)}</div>
+        <div className="actions"><button onClick={(event) => openPanel('edit', event.currentTarget)} disabled={busy || panel !== null} aria-expanded={panel === 'edit'} aria-controls={panel === 'edit' ? panelId : undefined}>Bewerken</button><button onClick={(event) => openPanel('version', event.currentTarget)} disabled={busy || panel !== null} aria-expanded={panel === 'version'} aria-controls={panel === 'version' ? panelId : undefined}>Nieuwe versie</button>{version && <button onClick={(event) => openPanel('applicability', event.currentTarget)} disabled={busy || panel !== null} aria-expanded={panel === 'applicability'} aria-controls={panel === 'applicability' ? panelId : undefined}>Toepasselijkheid wijzigen</button>}<button onClick={toggle} disabled={busy || panel !== null}>{busy ? 'Opslaan…' : source.enabled ? 'Bron uitschakelen' : 'Bron inschakelen'}</button></div>
         <VersionHistory source={source} />
       </section>
-      {panel && <section className="card">
+      {panel && <section className="card" id={panelId}>
         {panel === 'edit' && <SourceForm mode="edit" source={source} onSaved={saved} onCancel={() => setPanel(null)} onStart={invalidateRefresh} />}
         {panel === 'version' && <VersionUploadForm source={source} onSaved={saved} onCancel={() => setPanel(null)} onFailure={() => { void refresh(); }} onStart={invalidateRefresh} />}
         {panel === 'applicability' && version && <ApplicabilityForm source={source} version={version} onSaved={saved} onCancel={() => setPanel(null)} onStart={invalidateRefresh} />}

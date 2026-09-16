@@ -50,7 +50,7 @@ function parseAnswerPatch(body: Record<string, unknown>): AnswerPatch {
   }
   if (body.status !== undefined) {
     if (typeof body.status !== 'string' || !STATUSES.includes(body.status as AnswerStatus)) {
-      throw invalidInput(`Ongeldige status '${String(body.status)}' (toegestaan: ${STATUSES.join(', ')}).`);
+      throw invalidInput(`Ongeldige status (toegestaan: ${STATUSES.join(', ')}).`);
     }
     patch.status = body.status as AnswerStatus;
   }

@@ -2,14 +2,9 @@
 
 import Link from 'next/link';
 import type { Answer } from '@/lib/types';
+import { safeSourceUrl } from '@/lib/api-client';
 import { ApplicabilityBadge, Badge, dateLabel, levelLabels, StatusBadge } from './Badge';
 import { dateTimeLabel } from './HistoryDetail';
-
-function SourceLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return /^(https?:\/\/|\/api\/files\/)/i.test(href)
-    ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-    : <span>Bronlink niet beschikbaar</span>;
-}
 
 export function BriefingView({ answer }: { answer: Answer }) {
   const sources = answer.citations.filter((citation, index, all) => all.findIndex((item) => item.versionId === citation.versionId) === index);
@@ -41,17 +36,20 @@ export function BriefingView({ answer }: { answer: Answer }) {
       </div>)}
     </section>
     <section className="card"><h2>Bron openen</h2>
-      {answer.citations.length === 0 ? <p>Geen bronverwijzingen beschikbaar.</p> : <ul>{answer.citations.map((citation) => <li key={citation.marker}>
+      {answer.citations.length === 0 ? <p>Geen bronverwijzingen beschikbaar.</p> : <ul>{answer.citations.map((citation) => {
+        const pdfUrl = safeSourceUrl(citation.pdfUrl, true);
+        const originalUrl = safeSourceUrl(citation.originalUrl);
+        return <li key={citation.marker}>
         <strong>[{citation.marker}] {citation.sourceTitle}</strong> — {[citation.article, citation.section].filter(Boolean).join(' ') || 'Passage'} — p. {citation.pageStart}{citation.pageEnd !== citation.pageStart && `–${citation.pageEnd}`}
-        <div className="source-links"><SourceLink href={citation.pdfUrl}>Open PDF op p. {citation.pageStart}</SourceLink>{citation.originalUrl && <SourceLink href={citation.originalUrl}>Originele bron</SourceLink>}</div>
-        <p className="source-address">{citation.originalUrl ?? citation.pdfUrl}</p>
-      </li>)}</ul>}
+        <div className="source-links">{pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF op p. {citation.pageStart}</a> : <span>PDF niet beschikbaar</span>}{citation.originalUrl && (originalUrl ? <a href={originalUrl} target="_blank" rel="noopener noreferrer">Originele bron</a> : <span>Originele bron niet beschikbaar</span>)}</div>
+        <p className="source-address">{originalUrl ?? pdfUrl ?? 'Bronlink niet beschikbaar'}</p>
+      </li>; })}</ul>}
     </section>
     <section className="card"><h2>Toepasselijkheid</h2>
       {sources.length === 0 ? <p>Geen bronnen om te beoordelen.</p> : sources.map((source) => <div className="briefing-source" key={source.versionId}>
         <h3>{source.sourceTitle}</h3>
         <p>{levelLabels[source.level]} · {source.authority ?? 'Instantie niet vermeld'} · {source.versionLabel ?? 'Versie niet vermeld'} · {source.documentDate ? dateLabel(source.documentDate) : 'Datum onbekend'}</p>
-        <div className="badges"><ApplicabilityBadge value={source.applicability} verifiedAt={source.verifiedAt} />{!source.sourceEnabled && <Badge>Bron uitgeschakeld</Badge>}{!source.isCurrentVersion && <Badge>Vervangen door nieuwere versie</Badge>}</div>
+        <div className="badges"><ApplicabilityBadge value={source.applicability} verifiedAt={source.verifiedAt} />{!source.sourceEnabled && <Badge>Bron uitgeschakeld</Badge>}{!source.isCurrentVersion && source.applicability !== 'superseded' && <Badge>Vervangen door nieuwere versie</Badge>}</div>
         <p>Opmerking medewerker: {source.applicabilityNote ?? 'Geen opmerking vastgelegd.'}</p>
         <p className="muted">Versie-ID: {source.versionId}</p>
       </div>)}

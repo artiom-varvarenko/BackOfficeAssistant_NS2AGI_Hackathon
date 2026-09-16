@@ -107,7 +107,7 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | nul
 export function parseLevel(value: unknown): Level {
   const level = oneOf(value, LEVELS);
   if (level === null) {
-    throw invalidInput(`Ongeldig bestuursniveau '${String(value)}' (toegestaan: ${LEVELS.join(', ')}).`);
+    throw invalidInput(`Ongeldig bestuursniveau (toegestaan: ${LEVELS.join(', ')}).`);
   }
   return level;
 }
@@ -115,7 +115,7 @@ export function parseLevel(value: unknown): Level {
 export function parseDocType(value: unknown): DocType {
   const docType = oneOf(value, DOC_TYPES);
   if (docType === null) {
-    throw invalidInput(`Ongeldig documenttype '${String(value)}' (toegestaan: ${DOC_TYPES.join(', ')}).`);
+    throw invalidInput(`Ongeldig documenttype (toegestaan: ${DOC_TYPES.join(', ')}).`);
   }
   return docType;
 }
@@ -126,7 +126,7 @@ export function parseInitialApplicability(value: unknown): InitialApplicability 
   const applicability = oneOf(value, INITIAL_APPLICABILITIES);
   if (applicability === null) {
     throw invalidInput(
-      `Ongeldige toepasselijkheid '${String(value)}' (toegestaan bij aanmaak: ${INITIAL_APPLICABILITIES.join(', ')}).`,
+      `Ongeldige toepasselijkheid (toegestaan bij aanmaak: ${INITIAL_APPLICABILITIES.join(', ')}).`,
     );
   }
   return applicability;
@@ -139,7 +139,7 @@ export function parseOfficerApplicability(value: unknown): OfficerApplicability 
     throw invalidInput(
       value === 'superseded'
         ? `Toepasselijkheid '${APPLICABILITY_LABELS.superseded}' wordt automatisch toegekend zodra een nieuwere versie is toegevoegd en kan niet handmatig worden ingesteld.`
-        : `Ongeldige toepasselijkheid '${String(value)}' (toegestaan: ${OFFICER_APPLICABILITIES.join(', ')}).`,
+        : `Ongeldige toepasselijkheid (toegestaan: ${OFFICER_APPLICABILITIES.join(', ')}).`,
     );
   }
   return applicability;
@@ -149,9 +149,28 @@ export function parseOfficerApplicability(value: unknown): OfficerApplicability 
 // Multipart bodies
 
 export async function readForm(req: Request): Promise<FormData> {
+  // Enforce the byte ceiling while reading, before the multipart parser can
+  // allocate an arbitrarily large file. Allow bounded metadata overhead in
+  // addition to the separate 25 MiB file limit checked by readUpload.
+  const maxBytes = MAX_UPLOAD_BYTES + 64 * 1024;
+  const length = Number(req.headers.get('content-length'));
+  if (Number.isFinite(length) && length > maxBytes) {
+    throw new ApiError(400, 'file_too_large', 'Bestand groter dan 25 MB.');
+  }
+  let received = 0;
+  const limited = req.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (received > maxBytes) {
+        throw new ApiError(400, 'file_too_large', 'Bestand groter dan 25 MB.');
+      }
+      controller.enqueue(chunk);
+    },
+  }));
   try {
-    return await req.formData();
-  } catch {
+    return await new Response(limited ?? null, { headers: req.headers }).formData();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw invalidInput('Verwacht een multipart/form-data aanvraag met een bestand.');
   }
 }

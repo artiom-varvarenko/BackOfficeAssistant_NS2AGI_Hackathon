@@ -1,8 +1,8 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
-import { updateSource } from '@/lib/api-client';
+import { safeSourceUrl, updateSource } from '@/lib/api-client';
 import type { Source, SourceVersion } from '@/lib/types';
 import { ApplicabilityBadge, Badge, dateLabel, levelLabels } from './Badge';
 import { ApplicabilityForm } from './ApplicabilityForm';
@@ -22,14 +22,17 @@ export function SourceProcessingStatus({ version }: { version: SourceVersion | n
 export function VersionHistory({ source }: { source: Source }) {
   const previous = source.versions.filter((version) => version.id !== source.currentVersion?.id);
   return <details><summary>Vorige versies ({previous.length})</summary>
-    {previous.length === 0 ? <p className="muted">Geen vorige versies.</p> : previous.map((version) => <div className="context" key={version.id}>
-      <h3>Versie {version.versionNo}{version.versionLabel ? ` · ${version.versionLabel}` : ''}</h3>
-      <p>{version.documentDate ? dateLabel(version.documentDate) : 'Datum onbekend'} · Toegevoegd {dateLabel(version.createdAt)}</p>
-      <ApplicabilityBadge value={version.applicability} verifiedAt={version.verifiedAt} />
-      {version.applicabilityNote && <p>{version.applicabilityNote}</p>}
-      <SourceProcessingStatus version={version} />
-      <a href={version.pdfUrl} target="_blank" rel="noopener noreferrer">PDF versie {version.versionNo} ↗</a>
-    </div>)}
+    {previous.length === 0 ? <p className="muted">Geen vorige versies.</p> : previous.map((version) => {
+      const pdfUrl = safeSourceUrl(version.pdfUrl, true);
+      return <div className="context" key={version.id}>
+        <h3>Versie {version.versionNo}{version.versionLabel ? ` · ${version.versionLabel}` : ''}</h3>
+        <p>{version.documentDate ? dateLabel(version.documentDate) : 'Datum onbekend'} · Toegevoegd {dateLabel(version.createdAt)}</p>
+        <ApplicabilityBadge value={version.applicability} verifiedAt={version.verifiedAt} />
+        {version.applicabilityNote && <p>{version.applicabilityNote}</p>}
+        <SourceProcessingStatus version={version} />
+        {pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer">PDF versie {version.versionNo} ↗</a> : <span className="muted">PDF versie {version.versionNo} niet beschikbaar.</span>}
+      </div>;
+    })}
   </details>;
 }
 
@@ -41,7 +44,16 @@ function SourceRow({ source, onChange, onFailure, onMutationStart }: { source: S
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const panelId = useId();
+  const panelTrigger = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (panel === null) {
+      panelTrigger.current?.focus();
+      panelTrigger.current = null;
+    }
+  }, [panel]);
   const version = source.currentVersion;
+  const pdfUrl = safeSourceUrl(version?.pdfUrl, true);
   async function toggle() {
     if (busy) return;
     setBusy(true); setError(''); setNotice(''); onMutationStart?.();
@@ -53,19 +65,19 @@ function SourceRow({ source, onChange, onFailure, onMutationStart }: { source: S
     finally { setBusy(false); }
   }
   function saved(value: Source) { onChange(value); setPanel(null); setNotice('Bron bijgewerkt.'); toast('Bron bijgewerkt.'); }
-  function open(value: Panel) { setPanel(panel === value ? null : value); setError(''); setNotice(''); }
+  function open(value: Panel, trigger: HTMLButtonElement) { panelTrigger.current = trigger; setPanel(value); setError(''); setNotice(''); }
   return <Fragment>
     <tr>
       <td><Link href={`/bronnen/${encodeURIComponent(source.id)}`}><strong>{source.title}</strong></Link><p className="muted">{source.authority}</p><VersionHistory source={source} /></td>
       <td className="source-summary">{source.summary ? <><p>{source.summary.length > 180 ? `${source.summary.slice(0, 180)}…` : source.summary}</p><Link href={`/bronnen/${encodeURIComponent(source.id)}#samenvatting`}>Volledige samenvatting</Link></> : <span className="muted">Nog geen samenvatting</span>}</td>
       <td><Badge>{levelLabels[source.level]}</Badge><p>{sourceTypeLabels[source.docType]}</p></td>
       <td>{version?.documentDate ? dateLabel(version.documentDate) : <Badge tone="amber">Datum onbekend</Badge>}<p className="muted">{version?.versionLabel}</p></td>
-      <td>{version ? <><ApplicabilityBadge value={version.applicability} verifiedAt={version.verifiedAt} />{version.applicabilityNote && <p>{version.applicabilityNote}</p>}<button type="button" className="text-button" disabled={busy || panel !== null} aria-expanded={panel === 'applicability'} onClick={() => open('applicability')}>Wijzigen<span className="sr-only">: toepasselijkheid van {source.title}</span></button></> : 'Geen versie'}</td>
+      <td>{version ? <><ApplicabilityBadge value={version.applicability} verifiedAt={version.verifiedAt} />{version.applicabilityNote && <p>{version.applicabilityNote}</p>}<button type="button" className="text-button" disabled={busy || panel !== null} aria-expanded={panel === 'applicability'} aria-controls={panel === 'applicability' ? panelId : undefined} onClick={(event) => open('applicability', event.currentTarget)}>Wijzigen<span className="sr-only">: toepasselijkheid van {source.title}</span></button></> : 'Geen versie'}</td>
       <td><SourceProcessingStatus version={version} /></td>
-      <td><label className="checkbox-label"><input type="checkbox" checked={source.enabled} disabled={busy || panel !== null} onChange={toggle} aria-label={`Bron ${source.title} inschakelen`} />{busy ? 'Opslaan…' : source.enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</label></td>
-      <td className="source-tools"><div className="actions"><button type="button" disabled={busy || panel !== null} onClick={() => open('edit')} aria-expanded={panel === 'edit'}>Bewerken</button><button type="button" disabled={busy || panel !== null} onClick={() => open('version')} aria-expanded={panel === 'version'}>Nieuwe versie</button>{version && <a href={version.pdfUrl} target="_blank" rel="noopener noreferrer">PDF ↗</a>}</div></td>
+      <td><label className="checkbox-label"><input type="checkbox" checked={source.enabled} disabled={busy || panel !== null} onChange={toggle} aria-label={`Bron ${source.title} ingeschakeld`} />{busy ? 'Opslaan…' : source.enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</label></td>
+      <td className="source-tools"><div className="actions"><button type="button" disabled={busy || panel !== null} onClick={(event) => open('edit', event.currentTarget)} aria-expanded={panel === 'edit'} aria-controls={panel === 'edit' ? panelId : undefined}>Bewerken<span className="sr-only">: {source.title}</span></button><button type="button" disabled={busy || panel !== null} onClick={(event) => open('version', event.currentTarget)} aria-expanded={panel === 'version'} aria-controls={panel === 'version' ? panelId : undefined}>Nieuwe versie<span className="sr-only">: {source.title}</span></button>{version && (pdfUrl ? <a href={pdfUrl} target="_blank" rel="noopener noreferrer">PDF ↗<span className="sr-only">: {source.title}</span></a> : <span className="muted">PDF niet beschikbaar.</span>)}</div></td>
     </tr>
-    {(panel || notice || error) && <tr><td colSpan={8}>
+    {(panel || notice || error) && <tr><td colSpan={8} id={panelId}>
       {panel === 'edit' && <SourceForm mode="edit" source={source} onSaved={saved} onCancel={() => setPanel(null)} onStart={onMutationStart} />}
       {panel === 'version' && <VersionUploadForm source={source} onSaved={saved} onCancel={() => setPanel(null)} onFailure={onFailure} onStart={onMutationStart} />}
       {panel === 'applicability' && version && <ApplicabilityForm source={source} version={version} onSaved={saved} onCancel={() => setPanel(null)} onStart={onMutationStart} />}

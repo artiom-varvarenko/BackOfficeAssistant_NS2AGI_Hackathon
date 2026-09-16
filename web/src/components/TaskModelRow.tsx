@@ -31,7 +31,8 @@ export function TaskModelRow({ task, saved, providers, pendingProviders, busy, o
   const effort = gpt6 && value.effort !== 'low' && value.effort !== 'medium' ? 'low' : value.effort;
   const normalized: TaskModel = { ...value, model: value.model.trim(), effort: provider?.supportsEffort ? effort : null };
   const dirty = normalized.provider !== saved.provider || normalized.model !== saved.model || normalized.effort !== saved.effort;
-  const valid = normalized.model.length > 0;
+  const unsupportedAstra = normalized.model.toLowerCase() === 'gpt-6-astra' && !provider?.supportsEffort;
+  const valid = normalized.model.length > 0 && !unsupportedAstra;
 
   function change(next: TaskModel) {
     const supportsEffort = providers.find((item) => item.id === next.provider)?.supportsEffort;
@@ -93,7 +94,8 @@ export function TaskModelRow({ task, saved, providers, pendingProviders, busy, o
       </label>}
     </div>
     {task === 'answer' && <p className="muted">Getest met OpenAI gpt-6-astra. Andere aanbieders worden ondersteund maar zijn niet afgestemd.</p>}
-    {/^gpt-6(?:-|$)/i.test(value.model.trim()) && <p className="muted">Voor GPT-6 kiest u laag of gemiddeld om kosten en wachttijd te beperken.</p>}
+    {gpt6 && provider?.supportsEffort && <p className="muted">Voor GPT-6 kiest u laag of gemiddeld om kosten en wachttijd te beperken.</p>}
+    {unsupportedAstra && <p className="notice notice-amber">GPT-6 Astra vereist een aanbieder die lage of gemiddelde redeneerinspanning ondersteunt. Kies OpenAI of Azure, of kies een ander model bij deze aanbieder.</p>}
     {value.provider === 'azure' && <p className="muted">{provider?.baseUrl ? 'Gebruik uw Azure-implementatienaam als model en controleer de verbinding met Test.' : 'Azure: niet getest. Vul hieronder eerst de resourcenaam in.'}</p>}
     <div className="actions">
       <button type="button" disabled={busy || !dirty || !valid} onClick={() => void act(false)}>Opslaan</button>

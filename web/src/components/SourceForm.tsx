@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
-import { addSourceFromUrl, updateSource, uploadSource, type SourceMetadata } from '@/lib/api-client';
+import { useId, useState, type FormEvent } from 'react';
+import { addSourceFromUrl, safeSourceUrl, updateSource, uploadSource, type SourceMetadata } from '@/lib/api-client';
 import type { DocType, Level, Source } from '@/lib/types';
 import { levelLabels } from './Badge';
 
@@ -22,7 +22,7 @@ export function SourceForm({ mode, source, defaultScope = '', onSaved, onCancel,
   const [error, setError] = useState('');
   const [url, setUrl] = useState('');
   const [originalUrl, setOriginalUrl] = useState(source?.originalUrl ?? '');
-  const [originalEdited, setOriginalEdited] = useState(false);
+  const originalUrlHelpId = useId();
   const editing = mode === 'edit';
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -35,15 +35,15 @@ export function SourceForm({ mode, source, defaultScope = '', onSaved, onCancel,
     if (value('validFrom') && value('validUntil') && value('validUntil') < value('validFrom')) {
       setError('Geldig tot moet op of na Geldig van liggen.'); return;
     }
-    if (mode === 'url' && !/^https?:\/\//i.test(value('url'))) {
-      setError('Gebruik een volledige URL die begint met https:// of http://.'); return;
+    if (mode === 'url' && !safeSourceUrl(value('url'))) {
+      setError('Gebruik een volledige http://- of https://-URL zonder inloggegevens, controletekens of backslashes.'); return;
     }
-    if (originalUrl && !/^https?:\/\//i.test(originalUrl.trim())) {
-      setError('Gebruik voor de originele bron een URL die begint met https:// of http://.'); return;
+    if (value('originalUrl') && !safeSourceUrl(value('originalUrl'))) {
+      setError('Gebruik voor de originele bron een volledige http://- of https://-URL zonder inloggegevens, controletekens of backslashes.'); return;
     }
     const metadata: SourceMetadata = {
       title: value('title'), authority: optional('authority'), level: value('level') as Level,
-      docType: value('docType') as DocType, scope: optional('scope'), originalUrl: originalUrl.trim() || null,
+      docType: value('docType') as DocType, scope: optional('scope'), originalUrl: optional('originalUrl'),
     };
     setBusy(true); setError(''); onStart?.();
     try {
@@ -67,18 +67,17 @@ export function SourceForm({ mode, source, defaultScope = '', onSaved, onCancel,
   return <form onSubmit={submit} aria-busy={busy}>
     <h2>{editing ? 'Bron bewerken' : mode === 'url' ? 'Bron toevoegen via URL' : 'Bron toevoegen (PDF)'}</h2>
     <fieldset className="form-fieldset" disabled={busy}>
-      {mode === 'pdf' && <label className="field">PDF-bestand<input type="file" name="file" accept="application/pdf,.pdf" required /></label>}
-      {mode === 'url' && <label className="field">URL van het PDF-bestand<input type="url" name="url" value={url} required placeholder="https://…" onChange={(event) => {
-        setUrl(event.target.value); if (!originalEdited) setOriginalUrl(event.target.value);
-      }} /></label>}
+      {mode === 'pdf' && <label className="field">PDF-bestand<input type="file" name="file" accept="application/pdf,.pdf" autoFocus required /></label>}
+      {mode === 'url' && <label className="field">URL van het PDF-bestand<input type="url" name="url" value={url} autoFocus required placeholder="https://…" onChange={(event) => setUrl(event.target.value)} /></label>}
       <div className="form-grid">
-        <label className="field">Titel<input name="title" defaultValue={source?.title ?? ''} required /></label>
+        <label className="field">Titel<input name="title" defaultValue={source?.title ?? ''} autoFocus={editing} required /></label>
         <label className="field">Uitgevende instantie<input name="authority" defaultValue={source?.authority ?? ''} /></label>
         <label className="field">Bestuursniveau<select name="level" defaultValue={source?.level ?? 'municipal'}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="field">Documenttype<select name="docType" defaultValue={source?.docType ?? 'bylaw'}>{Object.entries(sourceTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="field">Toepassingsgebied<input name="scope" defaultValue={source?.scope ?? defaultScope} /></label>
-        <label className="field">Originele URL<input type="url" name="originalUrl" value={originalUrl} onChange={(event) => { setOriginalEdited(true); setOriginalUrl(event.target.value); }} /></label>
+        <label className="field">Originele URL<input type="url" name="originalUrl" value={mode === 'url' ? url : originalUrl} readOnly={mode === 'url'} aria-describedby={mode === 'url' ? originalUrlHelpId : undefined} onChange={(event) => setOriginalUrl(event.target.value)} /></label>
       </div>
+      {mode === 'url' && <p className="muted" id={originalUrlHelpId}>Bij import wordt de URL van het PDF-bestand opgeslagen als originele URL. U kunt die na de import wijzigen via Bewerken.</p>}
       {!editing && <>
         <VersionMetadataFields />
         <label className="field">Toepasselijkheid bij aanmaak<select name="applicability" defaultValue="unverified"><option value="unverified">Niet geverifieerd</option><option value="historical">Historisch (achtergrond)</option></select></label>

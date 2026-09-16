@@ -37,15 +37,22 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
   const [acting, setActing] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [recoveredDraft, setRecoveredDraft] = useState<ReviewDraft | null>(null);
-  const previousStatus = useRef(answer.status);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const actionLock = useRef(false);
   const reviewQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const emailTrigger = useRef<HTMLElement | null>(null);
+  const mounted = useRef(true);
   const latest = useRef({ answer, text, note, onSave, onAwaitIdle });
   latest.current = { answer, text, note, onSave, onAwaitIdle };
   const textChanged = text !== (answer.reviewedAnswer ?? answer.generatedAnswer);
   const changed = textChanged || note !== (answer.reviewNote ?? '');
   const controlsBusy = busy || navigation.saving;
+  const editorLocked = acting || locked || navigation.saving || recoveredDraft !== null;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   function rememberDraft(nextText: string, nextNote: string) {
     const current = latest.current.answer;
@@ -58,12 +65,14 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
     latest.current.text = value;
     rememberDraft(value, latest.current.note);
     setText(value);
+    setMessage('');
   }
 
   function changeNote(value: string) {
     latest.current.note = value;
     rememberDraft(latest.current.text, value);
     setNote(value);
+    setMessage('');
   }
 
   // Compare queued edits against persisted state after preceding mutations finish.
@@ -73,12 +82,27 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
     const snapshot = { text: latest.current.text, note: latest.current.note };
     const operation = reviewQueue.current.catch(() => undefined).then(async () => {
       const current = await latest.current.onAwaitIdle();
+      if (!mounted.current) return current;
       const edited = snapshot.text !== (current.reviewedAnswer ?? current.generatedAnswer);
       if (!edited && snapshot.note === (current.reviewNote ?? '')) return current;
-      return latest.current.onSave({ reviewedAnswer: snapshot.text, reviewNote: snapshot.note || null, ...(edited ? { status: 'draft' as const } : {}) });
+      const saved = await latest.current.onSave({ reviewedAnswer: snapshot.text, reviewNote: snapshot.note || null, ...(edited ? { status: 'draft' as const } : {}) });
+      setMessage(edited && current.status === 'approved' && saved.status === 'draft'
+        ? 'Teruggezet naar concept omdat de tekst is gewijzigd.'
+        : 'Wijzigingen opgeslagen.');
+      return saved;
     }).then((saved) => {
-      const local = readReviewDraft(saved.id);
-      if (latest.current.text === snapshot.text && latest.current.note === snapshot.note && local?.text === snapshot.text && local.note === snapshot.note) writeReviewDraft(saved.id, null);
+      // A previous page instance must never overwrite a newly recovered draft.
+      // Keep a conflict draft until the officer explicitly chooses which text to use.
+      if (!mounted.current || recoveredDraft) return saved;
+      const savedText = saved.reviewedAnswer ?? saved.generatedAnswer;
+      const savedNote = saved.reviewNote ?? '';
+      // Apply server normalisation only to fields not edited during the request.
+      if (latest.current.text === snapshot.text) { latest.current.text = savedText; setText(savedText); }
+      if (latest.current.note === snapshot.note) { latest.current.note = savedNote; setNote(savedNote); }
+      latest.current.answer = saved;
+      const remaining = latest.current;
+      writeReviewDraft(saved.id, remaining.text === savedText && remaining.note === savedNote ? null
+        : { text: remaining.text, note: remaining.note, baseText: savedText, baseNote: savedNote });
       return saved;
     });
     reviewQueue.current = operation;
@@ -111,10 +135,6 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
     setMessage('Niet-opgeslagen wijzigingen uit deze browsersessie hersteld.');
   }, [answer.id]);
 
-  useEffect(() => {
-    if (previousStatus.current === 'approved' && answer.status === 'draft') setMessage('Teruggezet naar concept omdat de tekst is gewijzigd.');
-    previousStatus.current = answer.status;
-  }, [answer.status]);
 
   useEffect(() => {
     if (!changed || acting) return;
@@ -139,8 +159,11 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
     setActing(true);
     setError('');
     setNeedsSettings(false);
-    try { return await action(await flush()); }
-    finally { actionLock.current = false; setActing(false); }
+    try {
+      const saved = await flush();
+      if (!mounted.current) throw new DOMException('De pagina is verlaten.', 'AbortError');
+      return await action(saved);
+    } finally { actionLock.current = false; if (mounted.current) setActing(false); }
   }
 
   function report(reason: unknown) {
@@ -161,13 +184,17 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(copyTextWithSources(text, answer));
-      setMessage('Gekopieerd, inclusief bronvermelding');
-      toast('Gekopieerd, inclusief bronvermelding');
-    } catch { setError('Kopiëren is niet gelukt. Geef de browser toegang tot het klembord of selecteer en kopieer de tekst handmatig.'); }
+      await withSaved(async (saved) => {
+        try { await navigator.clipboard.writeText(copyTextWithSources(saved.reviewedAnswer ?? saved.generatedAnswer, saved)); }
+        catch { throw new Error('Kopiëren is niet gelukt. Geef de browser toegang tot het klembord of selecteer en kopieer de tekst handmatig.'); }
+        setMessage('Gekopieerd, inclusief bronvermelding');
+        toast('Gekopieerd, inclusief bronvermelding');
+      });
+    } catch (reason) { report(reason); }
   }
 
   async function email() {
+    emailTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     try {
       await withSaved(async () => {
         const updated = await onEmailDraft();
@@ -193,9 +220,9 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
       setRecoveredDraft(null);
     }}>Herstel lokaal concept in het tekstveld</button> <button type="button" disabled={acting || locked || navigation.saving} onClick={() => { writeReviewDraft(answer.id, null); setRecoveredDraft(null); }}>Gebruik opgeslagen tekst</button></section>}
     <p className="muted">{answer.citations.filter((citation) => citation.checked).length}/{answer.citations.length} passages gecontroleerd</p>
-    <label className="field">Tekst voor communicatie (bewerkbaar)<textarea rows={11} value={text} disabled={acting || locked || navigation.saving} onChange={(event) => changeText(event.target.value)} /></label>
-    <div className="review-meta"><Badge tone={text !== answer.generatedAnswer ? 'amber' : 'neutral'}>{text !== answer.generatedAnswer ? 'Aangepast door medewerker' : 'Ongewijzigd t.o.v. het gegenereerde antwoord'}</Badge><button type="button" className="text-button" onClick={() => changeText(answer.generatedAnswer)} disabled={acting || locked || navigation.saving || text === answer.generatedAnswer}>Herstel gegenereerde tekst</button></div>
-    <label className="field">Opmerking (optioneel)<textarea rows={2} value={note} disabled={acting || locked || navigation.saving} onChange={(event) => changeNote(event.target.value)} /></label>
+    <label className="field">Tekst voor communicatie (bewerkbaar)<textarea rows={11} value={text} disabled={editorLocked} onChange={(event) => changeText(event.target.value)} /></label>
+    <div className="review-meta"><Badge tone={text !== answer.generatedAnswer ? 'amber' : 'neutral'}>{text !== answer.generatedAnswer ? 'Aangepast door medewerker' : 'Ongewijzigd t.o.v. het gegenereerde antwoord'}</Badge><button type="button" className="text-button" onClick={() => changeText(answer.generatedAnswer)} disabled={editorLocked || text === answer.generatedAnswer}>Herstel gegenereerde tekst</button></div>
+    <label className="field">Opmerking (optioneel)<textarea rows={2} value={note} disabled={editorLocked} onChange={(event) => changeNote(event.target.value)} /></label>
     <div className="actions">
       <button type="button" className="primary" disabled={controlsBusy || acting || (!changed && answer.status === 'approved')} onClick={() => void save('approved')}>Goedkeuren</button>
       <button type="button" className="danger-button" disabled={controlsBusy || acting || (!changed && answer.status === 'rejected')} onClick={() => void save('rejected')}>Afwijzen</button>
@@ -203,15 +230,18 @@ export const ReviewCard = forwardRef<ReviewCardHandle, ReviewCardProps>(function
       <button type="button" disabled={controlsBusy || acting || !changed} onClick={() => void save()}>Wijzigingen opslaan</button>
     </div>
     <div className="actions">
-      <button type="button" onClick={() => void copy()}>Kopieer tekst</button>
+      <button type="button" disabled={controlsBusy || acting} onClick={() => void copy()}>Kopieer tekst</button>
       <button type="button" disabled={controlsBusy || acting} onClick={() => void email()}>Maak e-mailconcept</button>
       <button type="button" disabled={controlsBusy || acting} onClick={() => void briefing()}>Briefing afdrukken</button>
-      <ReadAloudButton revision={`${answer.id}:${text}`} disabled={controlsBusy || acting} loadAudio={() => withSaved((saved) => readAnswerAloud(saved.id))} />
+      <ReadAloudButton revision={`${answer.id}:${text.trimEnd()}`} disabled={controlsBusy || acting} loadAudio={() => withSaved((saved) => readAnswerAloud(saved.id))} />
     </div>
-    {answer.emailDraft && <button type="button" className="text-button" disabled={acting} onClick={() => setDraft(answer.emailDraft)}>Bekijk laatst opgeslagen e-mailconcept</button>}
+    {answer.emailDraft && <button type="button" className="text-button" disabled={acting} onClick={(event) => { emailTrigger.current = event.currentTarget; setDraft(answer.emailDraft); }}>Bekijk laatst opgeslagen e-mailconcept</button>}
     <p className="muted">U bepaalt welke tekst wordt gebruikt. Er wordt niets automatisch verzonden.</p>
     <p className="save-status" role="status" aria-live="polite">{acting ? 'Actie uitvoeren…' : busy ? 'Wijzigingen opslaan…' : changed ? 'Niet-opgeslagen wijzigingen' : message || 'Alle wijzigingen opgeslagen.'}</p>
     {error && <p className="notice notice-red" role="alert">{error}{needsSettings && <> <Link href="/instellingen">Ga naar Instellingen</Link></>}</p>}
-    {draft !== null && <EmailDraftModal draft={draft} onClose={() => setDraft(null)} />}
+    {draft !== null && <EmailDraftModal draft={draft} onClose={() => {
+      setDraft(null);
+      window.requestAnimationFrame(() => { if (emailTrigger.current?.isConnected) emailTrigger.current.focus(); });
+    }} />}
   </section>;
 });

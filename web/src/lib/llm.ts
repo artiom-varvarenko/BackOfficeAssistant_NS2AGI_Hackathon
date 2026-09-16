@@ -3,6 +3,7 @@
 // engine needs (structured object for the answer, plain text for drafts and
 // summaries). Everything goes through the AI SDK (`ai`) so the provider is a
 // setting, not a code path. Never sets `temperature`.
+import { setTimeout as delay } from 'node:timers/promises';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAzure } from '@ai-sdk/azure';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -10,6 +11,7 @@ import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import {
+  APICallError,
   generateText,
   NoObjectGeneratedError,
   Output,
@@ -21,12 +23,14 @@ import {
 } from 'ai';
 import type { z } from 'zod';
 import { ApiError } from './api';
+import { redactSecrets, safeModelErrorMessage } from './model-errors';
 import { getAzureResourceName, getCustomBaseUrl, getTaskModel, resolveKey } from './settings';
 import type { Effort, LlmTask, ProviderId, TaskModel } from './types';
 
 // Output budget for the answer-with-citations call (PLAN.md section 4.2).
 export const ANSWER_MAX_OUTPUT_TOKENS = 2500;
 const PLAIN_MAX_OUTPUT_TOKENS = 1500;
+export const MODEL_TIMEOUT_MS = 120_000;
 
 export interface ProviderDef {
   id: ProviderId;
@@ -50,8 +54,8 @@ export class NoModelConfiguredError extends ApiError {
 }
 
 export class ModelFailedError extends ApiError {
-  constructor(message: string) {
-    super(502, 'model_failed', message);
+  constructor(message: string, secrets: readonly string[] = []) {
+    super(502, 'model_failed', redactSecrets(message, secrets));
     this.name = 'ModelFailedError';
   }
 }
@@ -153,6 +157,10 @@ export interface ResolvedTaskModel {
   model: LanguageModel;
 }
 
+// Credentials stay outside the exported resolved object. Capture the value used
+// at request creation, not a possibly changed setting when an error arrives.
+const resolvedSecrets = new WeakMap<ResolvedTaskModel, readonly string[]>();
+
 export function resolveTaskModel(task: LlmTask): ResolvedTaskModel {
   const taskModel = getTaskModel(task);
   const def = PROVIDERS.find((p) => p.id === taskModel.provider);
@@ -163,16 +171,29 @@ export function resolveTaskModel(task: LlmTask): ResolvedTaskModel {
       `Geen API-sleutel ingesteld voor ${def.label}. Voeg een sleutel toe onder Instellingen.`,
     );
   }
-  const model = def.make(resolved?.key ?? null, {
-    baseUrl: getCustomBaseUrl(),
-    resourceName: getAzureResourceName(),
-  })(taskModel.model);
-  return { def, taskModel, model };
+  const secrets = resolved === null ? [] : [resolved.key];
+  try {
+    const model = def.make(resolved?.key ?? null, {
+      // Invalid configuration for an unrelated provider must not block a call.
+      baseUrl: def.id === 'custom' ? getCustomBaseUrl() : null,
+      resourceName: def.id === 'azure' ? getAzureResourceName() : null,
+    })(taskModel.model);
+    const result = { def, taskModel, model };
+    resolvedSecrets.set(result, secrets);
+    return result;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ModelFailedError(
+      `Aanroep van ${def.label} · ${taskModel.model} mislukt: ${safeModelErrorMessage(err, secrets)}`,
+      secrets,
+    );
+  }
 }
 
 // Everything a call needs except the `output` specification.
 interface CallArgs extends LanguageModelCallOptions, RequestOptions {
   model: LanguageModel;
+  abortSignal: AbortSignal;
   instructions: string;
   prompt: string;
   providerOptions?: Record<string, Record<string, JSONValue>>;
@@ -196,7 +217,10 @@ interface CallArgs extends LanguageModelCallOptions, RequestOptions {
 //                     none/high for a few reasoning models, custom servers vary).
 // OpenAI/Azure additionally get `textVerbosity: 'low'` (terse prose around the
 // JSON) and `store: false` (no retention of officer questions on OpenAI's side).
-function callArgs(resolved: ResolvedTaskModel, system: string, prompt: string, maxOutputTokens: number): CallArgs {
+// Reuse this single argument object across attempts, including streaming: its
+// signal is the total deadline and SDK retries are off. The caller owns at most
+// one retry across transport and JSON failures, not one of each.
+export function callArgs(resolved: ResolvedTaskModel, system: string, prompt: string, maxOutputTokens: number): CallArgs {
   const { def, taskModel, model } = resolved;
   const openaiFamily = def.id === 'openai' || def.id === 'azure';
   return {
@@ -204,25 +228,27 @@ function callArgs(resolved: ResolvedTaskModel, system: string, prompt: string, m
     instructions: system,
     prompt,
     maxOutputTokens,
-    maxRetries: 1,
+    maxRetries: 0,
+    abortSignal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     reasoning: def.supportsEffort && taskModel.effort !== null ? taskModel.effort : undefined,
     providerOptions: openaiFamily ? { openai: { textVerbosity: 'low', store: false } } : undefined,
   };
 }
 
-// The SDK wraps the last error of a retry loop; surface the provider's own
-// message (e.g. "Incorrect API key provided", "Cannot connect to API: …").
-function toModelFailed(resolved: ResolvedTaskModel, err: unknown): ApiError {
-  if (err instanceof ApiError) return err;
-  const root = RetryError.isInstance(err) ? err.lastError : err;
-  let message = root instanceof Error ? root.message : String(root);
-  // Node reports a refused connection as an AggregateError (one entry per
-  // resolved address) with an empty message, which leaves the SDK's text at
-  // "Cannot connect to API: "; append the first concrete failure.
-  if (root instanceof Error && root.cause instanceof AggregateError && root.cause.errors[0] instanceof Error) {
-    message += root.cause.errors[0].message;
+// Reusable by the streaming path. Only sanitized message text may leave the
+// model boundary; SDK errors also carry headers, response bodies and config.
+export function toModelFailed(resolved: ResolvedTaskModel, err: unknown): ApiError {
+  const secrets = resolvedSecrets.get(resolved) ?? [];
+  if (err instanceof ApiError) {
+    return err.code === 'model_failed'
+      ? new ModelFailedError(err.message, secrets)
+      : new ApiError(err.status, err.code, redactSecrets(err.message, secrets));
   }
-  return new ModelFailedError(`Aanroep van ${resolved.def.label} · ${resolved.taskModel.model} mislukt: ${message}`);
+  const root = RetryError.isInstance(err) ? err.lastError : err;
+  return new ModelFailedError(
+    `Aanroep van ${resolved.def.label} · ${resolved.taskModel.model} mislukt: ${safeModelErrorMessage(root, secrets)}`,
+    secrets,
+  );
 }
 
 function meta(resolved: ResolvedTaskModel, usage: unknown, startedAt: number): LlmCallMeta {
@@ -235,10 +261,10 @@ function meta(resolved: ResolvedTaskModel, usage: unknown, startedAt: number): L
   };
 }
 
-// One structured call. The provider's native schema mode is tried first
-// (`Output.object`); when the SDK cannot turn the reply into a valid object
-// (typical for `custom` servers that only know JSON mode) the call is retried
-// once in plain JSON mode and validated here with the same schema.
+// One retry budget for the whole operation. A schema/JSON failure can spend it
+// on JSON mode; a retryable transport failure can spend it on the same request.
+// The second attempt never gets another transport or JSON retry. Compatible
+// servers already use JSON mode for Output.object plus local schema validation.
 export async function generateStructured<T>(
   task: LlmTask,
   args: { system: string; prompt: string; schema: z.ZodType<T>; maxOutputTokens?: number },
@@ -247,21 +273,27 @@ export async function generateStructured<T>(
   const base = callArgs(resolved, args.system, args.prompt, args.maxOutputTokens ?? ANSWER_MAX_OUTPUT_TOKENS);
   const startedAt = performance.now();
   try {
+    base.abortSignal.throwIfAborted();
     try {
       const result = await generateText({ ...base, output: Output.object({ schema: args.schema }) });
+      base.abortSignal.throwIfAborted();
       return { output: result.output, raw: result.text, ...meta(resolved, result.usage, startedAt) };
     } catch (err) {
+      base.abortSignal.throwIfAborted();
+      if (APICallError.isInstance(err) && err.isRetryable) {
+        await delay(2000, undefined, { signal: base.abortSignal });
+        const result = await generateText({ ...base, output: Output.object({ schema: args.schema }) });
+        base.abortSignal.throwIfAborted();
+        return { output: result.output, raw: result.text, ...meta(resolved, result.usage, startedAt) };
+      }
       if (!NoObjectGeneratedError.isInstance(err)) throw err;
     }
     const result = await generateText({ ...base, output: Output.json() });
+    base.abortSignal.throwIfAborted();
     const parsed = args.schema.safeParse(result.output);
     if (!parsed.success) {
-      const issues = parsed.error.issues
-        .slice(0, 3)
-        .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-        .join('; ');
       throw new ModelFailedError(
-        `Aanroep van ${resolved.def.label} · ${resolved.taskModel.model} mislukt: het antwoord voldeed ook na een tweede poging niet aan het verwachte formaat (${issues}).`,
+        `Aanroep van ${resolved.def.label} · ${resolved.taskModel.model} mislukt: het antwoord voldeed ook na een tweede poging niet aan het verwachte formaat.`,
       );
     }
     return { output: parsed.data, raw: result.text, ...meta(resolved, result.usage, startedAt) };
@@ -278,7 +310,10 @@ export async function generateTextPlain(
   const base = callArgs(resolved, args.system, args.prompt, args.maxOutputTokens ?? PLAIN_MAX_OUTPUT_TOKENS);
   const startedAt = performance.now();
   try {
-    const result = await generateText(base);
+    // No JSON fallback here, so the SDK may own the single transport retry.
+    base.abortSignal.throwIfAborted();
+    const result = await generateText({ ...base, maxRetries: 1 });
+    base.abortSignal.throwIfAborted();
     return { text: result.text, ...meta(resolved, result.usage, startedAt) };
   } catch (err) {
     throw toModelFailed(resolved, err);

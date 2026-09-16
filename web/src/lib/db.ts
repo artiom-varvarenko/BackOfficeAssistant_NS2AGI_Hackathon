@@ -137,7 +137,6 @@ CREATE TABLE IF NOT EXISTS passage_embeddings (
 `;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __economieAssistentDb: Database.Database | undefined;
 }
 

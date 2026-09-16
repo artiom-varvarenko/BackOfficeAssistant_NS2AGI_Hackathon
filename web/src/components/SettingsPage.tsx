@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { embedSource, getAnswers, getSettings, getSources, readAnswerAloud, testSettings, updateSettings, type SettingsPatch } from '@/lib/api-client';
 import type { LlmTask, ProviderId, Settings, TaskModel } from '@/lib/types';
@@ -28,15 +28,15 @@ function SettingsEditor({ initialSettings, retrievalBudget }: { initialSettings:
   const [pendingTts, setPendingTts] = useState(false);
   const locked = useRef(false);
   const toast = useToast();
-  const navigation = useReviewNavigation();
+  const { register } = useReviewNavigation();
   const pendingCredentials = Object.values(pendingProviders).some(Boolean) || pendingTts;
   const navigationState = useRef({ pendingCredentials, busy });
-  navigationState.current = { pendingCredentials, busy };
+  useLayoutEffect(() => { navigationState.current = { pendingCredentials, busy }; }, [pendingCredentials, busy]);
   const providerChanged = useCallback((provider: ProviderId, dirty: boolean) => {
     setPendingProviders((previous) => previous[provider] === dirty ? previous : { ...previous, [provider]: dirty });
   }, []);
 
-  useEffect(() => navigation.register({
+  useEffect(() => register({
     needsSave: () => navigationState.current.pendingCredentials || navigationState.current.busy,
     flush: async () => {
       if (locked.current) throw new Error('Wacht tot de huidige instellingenbewerking voltooid is.');
@@ -44,7 +44,7 @@ function SettingsEditor({ initialSettings, retrievalBudget }: { initialSettings:
         throw new Error('Uw invoer is behouden. Sla de instellingen op of bevestig bij het verlaten dat u de wijzigingen wilt weggooien.');
       }
     },
-  }), [navigation.register]);
+  }), [register]);
 
   useEffect(() => {
     if (!pendingCredentials && !busy) return;

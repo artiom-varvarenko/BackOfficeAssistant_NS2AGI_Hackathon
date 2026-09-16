@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { safeSourceUrl, searchSources } from '@/lib/api-client';
 import type { SearchHit } from '@/lib/types';
@@ -27,13 +27,15 @@ function decodeSnippetText(text: string): string {
 function SearchSnippet({ text }: { text: string }) {
   // Split trusted delimiters before decoding; decoded source markup is React text only.
   let highlighted = false;
-  return <>{text.split(/(<mark>|<\/mark>)/).map((part, index) => {
-    if (part === '<mark>') { highlighted = true; return null; }
-    if (part === '</mark>') { highlighted = false; return null; }
-    if (!part) return null;
+  const nodes: ReactNode[] = [];
+  for (const [index, part] of text.split(/(<mark>|<\/mark>)/).entries()) {
+    if (part === '<mark>') { highlighted = true; continue; }
+    if (part === '</mark>') { highlighted = false; continue; }
+    if (!part) continue;
     const decoded = decodeSnippetText(part);
-    return highlighted ? <mark key={index}>{decoded}</mark> : <Fragment key={index}>{decoded}</Fragment>;
-  })}</>;
+    nodes.push(highlighted ? <mark key={index}>{decoded}</mark> : <Fragment key={index}>{decoded}</Fragment>);
+  }
+  return <>{nodes}</>;
 }
 
 export function SearchPanel() {

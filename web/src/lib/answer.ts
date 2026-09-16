@@ -197,7 +197,6 @@ export function buildPrompt(
 
 // ---- Validation ---------------------------------------------------------------
 
-const MARKER_RE = /\[(\d+)\]/g;
 // `[1, 2]` / `[1,2]` → `[1][2]`; `[ 3 ]` → `[3]`.
 const MARKER_LIST_RE = /\[\s*(\d+(?:\s*,\s*\d+)+)\s*\]/g;
 const MARKER_SPACED_RE = /\[\s+(\d+)\s*\]|\[\s*(\d+)\s+\]/g;
@@ -252,12 +251,16 @@ export function findVerbatim(passage: string, fragment: string): string | null {
   return passage.slice(hay.offsets[at], hay.offsets[at + needle.length - 1] + 1);
 }
 
-// Sentences: split on . ! ? followed by whitespace, and on line breaks.
+// Split on sentence punctuation and line breaks, keeping trailing numeric
+// citations with the preceding sentence (including "zin. [1] [2]").
 export function countUncitedSentences(text: string): number {
   let count = 0;
-  for (const raw of text.replace(/([.!?])\s+/g, '$1\n').split('\n')) {
-    const sentence = raw.trim();
-    if (sentence.length > 40 && !/\[\d+\]/.test(sentence)) count++;
+  for (const line of normaliseMarkers(text).split(/\r?\n/)) {
+    const sentences = line.replace(/([.!?](?:\s*\[\d+\])*)(?:\s+|$)/g, '$1\n').split('\n');
+    for (const raw of sentences) {
+      const sentence = raw.trim();
+      if (sentence.length > 40 && !/\[\d+\]/.test(sentence)) count++;
+    }
   }
   return count;
 }

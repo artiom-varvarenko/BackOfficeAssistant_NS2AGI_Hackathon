@@ -12,7 +12,7 @@ export function SourceLibrary() {
   const toast = useToast();
   const [sources, setSources] = useState<Source[] | null>(null);
   const [error, setError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
   const [notice, setNotice] = useState('');
   const [mode, setMode] = useState<'pdf' | 'url' | null>(null);
   const [municipality, setMunicipality] = useState('');
@@ -25,14 +25,22 @@ export function SourceLibrary() {
     }
   }, [mode]);
   const request = useRef(0);
-  const refresh = useCallback(async () => {
+  const load = useCallback(() => {
     const current = ++request.current;
-    setRefreshing(true); setError('');
-    try { const result = await getSources(); if (current === request.current) setSources(result); }
-    catch (failure) { if (current === request.current) setError(sourceError(failure)); }
-    finally { if (current === request.current) setRefreshing(false); }
+    return getSources()
+      .then((result) => { if (current === request.current) { setSources(result); setError(''); } })
+      .catch((failure) => { if (current === request.current) setError(sourceError(failure)); })
+      .finally(() => { if (current === request.current) setRefreshing(false); });
   }, []);
-  useEffect(() => { void refresh(); return () => { request.current++; }; }, [refresh]);
+  const refresh = useCallback(() => {
+    setRefreshing(true); setError('');
+    return load();
+  }, [load]);
+  useEffect(() => {
+    const activeRequests = request;
+    void load();
+    return () => { activeRequests.current++; };
+  }, [load]);
   useEffect(() => {
     let alive = true;
     getSettings().then((settings) => { if (alive) setMunicipality(settings.municipality); }).catch(() => { /* The scope remains editable if settings are unavailable. */ });

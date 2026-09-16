@@ -12,6 +12,10 @@ function releaseMedia(element: HTMLAudioElement | null) {
 }
 
 export function ReadAloudButton({ loadAudio, revision, disabled = false }: { loadAudio: () => Promise<Blob>; revision: string; disabled?: boolean }) {
+  return <PlaybackButton key={revision} loadAudio={loadAudio} disabled={disabled} />;
+}
+
+function PlaybackButton({ loadAudio, disabled }: { loadAudio: () => Promise<Blob>; disabled: boolean }) {
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -40,19 +44,16 @@ export function ReadAloudButton({ loadAudio, revision, disabled = false }: { loa
     }
   }, [url]);
 
-  // Invalidate during commit so old results cannot start playback after a revision change.
+  // A revision remounts only playback. Invalidate during commit so an old
+  // request cannot start playing after the officer changes the text.
   useLayoutEffect(() => {
     mounted.current = true;
-    setUrl(null);
-    setBusy(false);
-    setError('');
-    setNeedsSettings(false);
     return () => {
       mounted.current = false;
       request.current += 1;
       releaseAudio();
     };
-  }, [revision, releaseAudio]);
+  }, [releaseAudio]);
 
   async function read() {
     const id = ++request.current;

@@ -59,7 +59,7 @@ export function SourceDetail({ sourceId }: { sourceId: string }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [operation, setOperation] = useState<'summary' | 'embed' | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
   const [panel, setPanel] = useState<'edit' | 'version' | 'applicability' | null>(null);
   const panelId = useId();
   const panelTrigger = useRef<HTMLButtonElement | null>(null);
@@ -70,14 +70,22 @@ export function SourceDetail({ sourceId }: { sourceId: string }) {
     }
   }, [panel]);
   const request = useRef(0);
-  const refresh = useCallback(async () => {
+  const load = useCallback(() => {
     const current = ++request.current;
-    setRefreshing(true); setLoadError('');
-    try { const value = await getSource(sourceId); if (current === request.current) setSource(value); }
-    catch (failure) { if (current === request.current) setLoadError(sourceError(failure)); }
-    finally { if (current === request.current) setRefreshing(false); }
+    return getSource(sourceId)
+      .then((value) => { if (current === request.current) { setSource(value); setLoadError(''); } })
+      .catch((failure) => { if (current === request.current) setLoadError(sourceError(failure)); })
+      .finally(() => { if (current === request.current) setRefreshing(false); });
   }, [sourceId]);
-  useEffect(() => { void refresh(); return () => { request.current++; }; }, [refresh]);
+  const refresh = useCallback(() => {
+    setRefreshing(true); setLoadError('');
+    return load();
+  }, [load]);
+  useEffect(() => {
+    const activeRequests = request;
+    void load();
+    return () => { activeRequests.current++; };
+  }, [load]);
   const processing = source?.versions.some((version) => version.processingStatus === 'processing') ?? false;
   useEffect(() => {
     if (!processing) return;

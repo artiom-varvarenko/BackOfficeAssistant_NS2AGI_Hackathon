@@ -71,7 +71,10 @@ remain part of the same workflow in both languages.
 - **Geschiedenis:** reopen stored answers, verify citations, regenerate with
   current sources, copy with source references, create an editable email draft
   or print the officer briefing. Nothing is automatically sent.
-- **Instellingen:** choose provider/model/effort per task and test it. Source
+- **Instellingen:** choose provider/model/effort per task and test it. The default
+  answer model is OpenAI `gpt-5.6-terra` with `xhigh` (Extra high) reasoning.
+  OpenAI extra-high calls reserve up to 25,000 output/reasoning tokens so the
+  short visible-answer budget does not cut off reasoning before an answer. Source
   summaries are generated after ingestion when the summary model is configured;
   the source page also offers a manual retry.
 - **Logboek:** follow source and answer events with links to the actual records.

@@ -63,7 +63,7 @@ function SimilarAnswers({ question, answerId }: { question: string; answerId: st
 export function HistoryDetail({ answer, onExport, busy }: { answer: Answer; onExport: () => Promise<void>; busy: boolean }) {
   const { t, locale } = useLocale();
   const scope = answer.scopeSourceIds;
-  const effortLabel = answer.effort === null ? t("Niet ingesteld") : { none: t("Geen"), low: t("Laag"), medium: t("Gemiddeld"), high: t("Hoog") }[answer.effort];
+  const effortLabel = answer.effort === null ? t("Niet ingesteld") : { none: t("Geen"), low: t("Laag"), medium: t("Gemiddeld"), high: t("Hoog"), xhigh: t("Extra hoog") }[answer.effort];
   return <div className="history-details">
     <section className="card"><h2>{t("Verloop")}</h2>
       {answer.events.length === 0 ? <p className="muted">{t("Er zijn nog geen gebeurtenissen vastgelegd.")}</p> : <ol className="timeline">{[...answer.events].sort((a, b) => a.at.localeCompare(b.at)).map((event, index) => <li key={`${event.at}-${event.type}-${index}`}><strong>{t(eventLabels[event.type])}</strong><p className="muted"><time dateTime={event.at}>{dateTimeLabel(event.at, locale)}</time></p>{event.detail && <p className="answer-text">{translateEventDetail(event.detail, event.type, locale)}</p>}</li>)}</ol>}

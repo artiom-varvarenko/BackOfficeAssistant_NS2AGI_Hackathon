@@ -1,4 +1,5 @@
 export const backendTranslations: Record<string, string> = {
+  'Ongeldig redeneerniveau (toegestaan: none, low, medium, high, xhigh).': 'Invalid reasoning effort (allowed: none, low, medium, high, xhigh).',
   'Kies Nederlands of Engels als taal.': 'Choose Dutch or English as the language.',
   'De bronselectie moet een lijst van bron-id’s zijn.': 'The source selection must be a list of source IDs.',
   'Selecteer minstens één bron of kies alle bronnen.': 'Select at least one source or choose all sources.',

@@ -16,13 +16,13 @@ export const RETRIEVAL_CHAR_BUDGET: number =
   Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : 60000;
 
 export const DEFAULT_TASKS: Record<LlmTask, TaskModel> = {
-  answer: { provider: 'openai', model: 'gpt-6-astra', effort: 'low' },
+  answer: { provider: 'openai', model: 'gpt-5.6-terra', effort: 'xhigh' },
   draft: { provider: 'openai', model: 'gpt-5.6-terra', effort: 'none' },
   summary: { provider: 'openai', model: 'gpt-5.6-luna', effort: 'none' },
 };
 
 const TASKS: readonly LlmTask[] = ['answer', 'draft', 'summary'];
-const EFFORTS: readonly Effort[] = ['none', 'low', 'medium', 'high'];
+const EFFORTS: readonly Effort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
 const TTS_PROVIDERS = ['none', 'elevenlabs', 'openai'] as const;
 const RETRIEVAL_MODES = ['bm25', 'hybrid'] as const;
 type TtsProvider = (typeof TTS_PROVIDERS)[number];
@@ -99,7 +99,7 @@ function checkTaskModel(input: unknown): Check<TaskModel> {
   if (effort !== null && effort !== undefined && !EFFORTS.includes(effort as Effort)) {
     return {
       ok: false,
-      message: 'Ongeldig redeneerniveau (toegestaan: none, low, medium, high).',
+      message: 'Ongeldig redeneerniveau (toegestaan: none, low, medium, high, xhigh).',
     };
   }
   const astra = model.trim().toLowerCase() === 'gpt-6-astra';

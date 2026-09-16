@@ -17,7 +17,7 @@ export type AnswerStatus = 'draft' | 'approved' | 'rejected';
 export type CanAnswer = 'ja' | 'gedeeltelijk' | 'nee';
 export type ProviderId = 'openai' | 'anthropic' | 'google' | 'mistral' | 'azure' | 'custom';
 export type LlmTask = 'answer' | 'draft' | 'summary';
-export type Effort = 'none' | 'low' | 'medium' | 'high';
+export type Effort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface SourceVersion {
   id: string;

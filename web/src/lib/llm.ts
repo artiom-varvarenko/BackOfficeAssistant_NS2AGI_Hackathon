@@ -245,7 +245,9 @@ export function callArgs(
     model,
     instructions: system,
     prompt,
-    maxOutputTokens,
+    // OpenAI counts hidden reasoning against this same cap. Extra-high effort
+    // needs room beyond the short visible-answer budget to finish its answer.
+    maxOutputTokens: openaiFamily && taskModel.effort === 'xhigh' ? Math.max(maxOutputTokens, 25_000) : maxOutputTokens,
     maxRetries: 0,
     abortSignal: abortSignal === undefined ? deadline : AbortSignal.any([abortSignal, deadline]),
     reasoning: def.supportsEffort && taskModel.effort !== null ? taskModel.effort : undefined,

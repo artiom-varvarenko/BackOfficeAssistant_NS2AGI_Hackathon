@@ -7,10 +7,10 @@ import { ModelBadge } from './ModelBadge';
 
 export type ModelTestResult = { ok: boolean; latencyMs: number; provider: ProviderId; model: string; error?: string };
 const taskLabels: Record<LlmTask, string> = { answer: 'Antwoord', draft: 'E-mailconcept', summary: 'Samenvatting' };
-const effortLabels: Record<Effort, string> = { none: 'Geen', low: 'Laag', medium: 'Gemiddeld', high: 'Hoog' };
+const effortLabels: Record<Effort, string> = { none: 'Geen', low: 'Laag', medium: 'Gemiddeld', high: 'Hoog', xhigh: 'Extra hoog' };
 
 function allowedEfforts(model: string): Effort[] {
-  return /^gpt-6(?:-|$)/i.test(model.trim()) ? ['low', 'medium'] : ['none', 'low', 'medium', 'high'];
+  return /^gpt-6(?:-|$)/i.test(model.trim()) ? ['low', 'medium'] : ['none', 'low', 'medium', 'high', 'xhigh'];
 }
 
 export function TaskModelRow({ task, saved, providers, pendingProviders, busy, onSave, onTest }: {

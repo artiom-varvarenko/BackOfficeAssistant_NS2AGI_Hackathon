@@ -92,6 +92,7 @@ export const reviewTranslations: Record<string, string> = {
   'Herstel lokaal concept in het tekstveld': 'Restore local draft in the text field',
   'Het goedgekeurde antwoord staat klaar om te beluisteren.': 'The approved answer is ready to listen to.',
   'Hoog': 'High',
+  'Extra hoog': 'Extra high',
   'Hybride (BM25 + embeddings)': 'Hybrid (BM25 + embeddings)',
   'Hybride zoeken combineert zoekwoorden met betekenis. Bereken eerst de embeddings van uw bronnen. Beide methoden gebruiken alleen ingeschakelde, verwerkte bronnen.': 'Hybrid search combines keywords with meaning. Calculate source embeddings first. Both methods use only enabled, processed sources.',
   'Ingesteld via omgeving': 'Configured through the environment',

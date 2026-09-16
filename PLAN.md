@@ -3,6 +3,8 @@
 Planning language: English. Everything the officer sees (UI text, answers, e-mail draft, briefing) is Dutch.
 Deadline: **16:30 CEST today** (YouTube link via the Google Form; late = not accepted). Working demo on our laptop = optional jury bonus.
 
+**Current execution handoff:** read [HANDOFF.md](HANDOFF.md) and section 18 before continuing. The remaining work has been transferred to another agent/laptop; there are overlapping completion candidates that must be reconciled. This plan describes requirements, not a claim that all acceptance items passed.
+
 Everything here was derived from the nine PDFs in `data/` ("the pack"), the live Notion pages, the challenge page, `data/agent.md`, and the official model pages of OpenAI, Anthropic, Google and Mistral (all read today). Assumptions are marked **[assumption]**.
 
 **What changed in v2:** (1) all nine pack documents are ingested and used, each with its own status; (2) the model layer is provider-neutral — the officer/admin chooses provider, model and API key per task in a settings screen (OpenAI GPT-6 / GPT-5.6 are the tested defaults); (3) second-pass features that strengthen the three criteria: per-passage verification ticks, "show context", direct source search, source detail pages, add-source-by-URL, "sources changed since this answer → regenerate", and a printable officer briefing in the organisers' template. Nothing from v1 was removed.
@@ -538,7 +540,7 @@ Test questions — expected findings verified against the PDFs today (all nine d
 | Q8 | Moet ik mij via Foodweb registreren bij het FAVV voor mijn voedselkraam? | Historical guide flagged red; conflict entry: 2026 brochure p. 4 "'Mijn FAVV' vervangt Foodweb"; FAVV registration obligation from brochure §4.1 p. 7 (guidance warning). |
 | Q9 | Heb ik nog een leurkaart nodig om op de markt in Schoten te verkopen? | VLAIO p. 10 (no machtiging since April 2024, KBO activity codes; guidance warning) + municipal Art. 8 §1 p. 4 (KBO registration for ambulant activity) + FAVV attachment if food (Art. 13 §3 p. 6); levels named separately. |
 
-Checklist:
+Checklist (requirements, not completed-test records; see section 18 and HANDOFF.md for current evidence):
 1. Q1 → useful Dutch answer with valid markers; every marker opens the right passage/page; PDF opens on p. 5; original link opens; model badge shows the configured model. ✔ criterion 1
 2. Q6 → honest limitation, nothing invented. ✔
 3. Q8 → historical flag + conflict shown. Disable the 2022 guide → re-ask → no longer cited; the earlier Q8 answer in Geschiedenis keeps its evidence with "Bron uitgeschakeld". ✔ criteria 1+3
@@ -615,7 +617,7 @@ Full pass of section 13 on a freshly seeded `storage/` → last clips → assemb
 
 ---
 
-## 17. Restart checkpoint — 2026-09-16
+## 17. Earlier restart checkpoint — 2026-09-16 (historical)
 
 **User-requested stop:** finish the active Part 1 Sprint 2 batch, then stop so the CLI models can be changed. Do not automatically start Sprint 3 or 4.
 
@@ -640,3 +642,46 @@ Full pass of section 13 on a freshly seeded `storage/` → last clips → assemb
 4. Resume Part 1 Sprint 3, then Sprint 4, only after the user resumes work. The direct-search function and source-scope argument already exist as engine groundwork; their later endpoints/UI, hybrid retrieval, summaries, TTS, streaming, login/rate-limit/tunnel work are not completed by this checkpoint.
 
 Local startup after restarting the CLI: `cd web`, then `npm run dev`. Seed only if needed (`npm run seed` is idempotent); do not reset the user's storage.
+
+---
+
+## 18. Current laptop / agent handoff — 2026-09-16
+
+**The user requested a portable handoff and a stop to avoid overlapping work.** The originating agent will not continue implementation after publishing this checkpoint. The authoritative continuation instructions and ownership map are in [HANDOFF.md](HANDOFF.md).
+
+### Branches to reconcile, not rewrite
+
+| Branch / checkpoint | Contents | Integration state |
+|---|---|---|
+| `main` / `1053b00` | Earlier Part 1 Sprint 2 + Part 2 Sprint 1 baseline | Not the latest project |
+| `integration/complete-plan` / `0f55ac4` | Teammate UI Sprints 2–4 merged; Tier 2 APIs; real-only UI; settings/model safety | Runtime evidence below |
+| `integration/complete-plan` / `d5372b6` | Hybrid embeddings, source scope, shared streaming pipeline, login/proxy/rate limits and 26 MiB proxy buffering | TypeScript and full production build passed; combined core runtime checks pending |
+| `p2/auxiliary-api` / `a28ec00` | Teammate's five summary/TTS/events files | Pushed, not merged into this branch |
+| `integration/finish-plan` / `1965fac` | Auxiliary work plus another shared-core completion candidate, ingestion hooks, e-mail guards and deployment docs | Pushed separately; overlaps the current core implementation |
+
+The latest integration branch tip also contains HANDOFF.md and this status update. Do not blindly merge or replace shared files. In particular, reconcile async `retrievePassages(..., {abortSignal})` here with the candidate's `retrieveForAnswer(..., {signal})`; keep one consistent pipeline and migrate every caller.
+
+### Ownership at transfer
+
+- **Teammate owns only:** `web/src/lib/summary.ts`, `web/src/lib/tts.ts`, `web/src/app/api/sources/[id]/summary/route.ts`, `web/src/app/api/tts/route.ts`, `web/src/app/api/events/route.ts`. Her pushed branch is the source for those implementations; do not duplicate them.
+- **Receiving agent owns:** final branch reconciliation, shared engine/ingestion hooks, combined UI/API/security/provider verification, documentation, deployment and final merge. Coordinate any changes to the teammate's files after their handoff.
+- **Originating agent:** no further implementation after this checkpoint; workers and temporary verification services stopped.
+
+### Evidence and unfinished work
+
+- Runtime checks before the final core wave exercised the real public Schoten URL download/ingestion; unsafe URL rejection; direct search and exact-version context; settings validation; persisted answer/review/citation/e-mail/similar flows with an explicitly synthetic HTTP model-protocol fixture.
+- Native headless-Chrome interaction verified the fixed reopen notice, persisted citation progress, fresh reviewed-text copying with a source footer, the e-mail modal and an A4 export containing all seven briefing sections.
+- The final core wave received static reviews and passed `npx tsc --noEmit` plus `npm run build -- --webpack`. **That is not streaming, hybrid, authentication, rate-limit or tunnel runtime sign-off.** Relevant earlier UI/API checks must be rerun after final reconciliation.
+- No real LLM/embedding/TTS credentials were available locally. Real Q1–Q9 quality, provider switching, semantic retrieval and Dutch speech remain unverified. Joint Checkpoint 2 and the full section 13 checklist are not signed off.
+- This branch still lacks automatic summary/embedding ingestion hooks and the teammate's three auxiliary APIs. The alternative candidate already contains hook work and stronger e-mail concurrency handling; review and port/reconcile it instead of starting over.
+- Validate the new proxy's 26 MiB buffering with valid uploads above 10 MiB and the application's actual 25 MiB limit. Validate overlapping version uploads, cancellation, signed-cookie expiry/tampering, origin/hostname/IP trust and the eleventh expensive request.
+- The architecture slide and Dutch demo script exist. No final recording, voice-over, rendered video, YouTube upload or organiser submission was produced. No public tunnel was launched.
+- Normal local storage remains 9 sources, 556 passages, 0 answers and 0 settings rows. Do not reset user data or transfer temporary synthetic test data as the real demo.
+
+### Next agent's first actions
+
+1. Read HANDOFF.md, fetch all branches, and identify any existing integrator work before choosing a branch. Preserve all checkpoints.
+2. Merge/review the auxiliary branch and reconcile the overlapping candidate with the current build-green core; do not assign the same files to multiple agents.
+3. Finish the common ingestion hooks and integration fixes, then run combined runtime/browser/security checks in isolated storage.
+4. Obtain real credentials locally and perform the real-provider acceptance and remaining demo/submission steps with the team.
+5. Update this plan with observed evidence and merge/push the verified result to main. Do not label the current checkpoint as a completed project.
